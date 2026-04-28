@@ -1,0 +1,139 @@
+r@r:~/launch/build/bin$ ./mine-genesis \
+    -timestamp 1777291200 \
+    -difficulty 0x1e0ffff0 \
+    -reward 50 \
+    -output mainnet_genesis.json
+Byze Genesis Block Miner (RandomX)
+====================================
+
+Parameters:
+  Timestamp: 1777337372 (2026-04-28 00:49:32 UTC)
+  Difficulty Bits: 0x1e0ffff0
+  Genesis Reward: 50 BYZ
+
+Mining genesis block...
+This may take a while...
+
+Target: 00000ffff0000000000000000000000000000000000000000000000000000000
+
+Trying nonce: 800000 (hash: 0b2cb34e2a0b63f9...)     
+✓ Genesis block found!
+
+Results:
+  Nonce: 847791 (0xcefaf)
+  Block Hash: 00000a6ff6ac3c6549d30a1931c8ff1fc98be705c7802164d7fb61b2bec85070
+  Merkle Root: 946448a64c948d5a9c044306689cc47a4e1c12ee591f8871600ab8b9025f7cca
+  Time: 4418 seconds
+  Hashes: 847792
+  Hash Rate: 191 H/s
+
+Update chainparams.cpp with these values:
+  genesis = CreateHermesGenesisBlock(1777337372, 847791, 0x1e0ffff0, 1, 50 * COIN);
+  consensus.hashGenesisBlock = genesis.GetHash();
+  assert(consensus.hashGenesisBlock == uint256{"00000a6ff6ac3c6549d30a1931c8ff1fc98be705c7802164d7fb61b2bec85070"});
+  assert(genesis.hashMerkleRoot == uint256{"946448a64c948d5a9c044306689cc47a4e1c12ee591f8871600ab8b9025f7cca"});
+r@r:~/launch/build/bin$ ./mine-genesis \
+    -timestamp 1777337372 \
+    -difficulty 0x1e0ffff0 \
+    -reward 50 \
+    -output testnet_genesis.json
+Byze Genesis Block Miner (RandomX)
+====================================
+
+Parameters:
+  Timestamp: 1777342551 (2026-04-28 02:15:51 UTC)
+  Difficulty Bits: 0x1e0ffff0
+  Genesis Reward: 50 BYZ
+
+Mining genesis block...
+This may take a while...
+
+Target: 00000ffff0000000000000000000000000000000000000000000000000000000
+
+Trying nonce: 0 (hash: b0ee62cc8f02f7bc...)     
+✓ Genesis block found!
+
+Results:
+  Nonce: 71874 (0x118c2)
+  Block Hash: 00000dcf4d40cbc788bcff6301d01d11f7ada97ee444048a6fa9ef4819e3cfae
+  Merkle Root: 946448a64c948d5a9c044306689cc47a4e1c12ee591f8871600ab8b9025f7cca
+  Time: 365 seconds
+  Hashes: 71875
+  Hash Rate: 196 H/s
+
+Update chainparams.cpp with these values:
+  genesis = CreateHermesGenesisBlock(1777342551, 71874, 0x1e0ffff0, 1, 50 * COIN);
+  consensus.hashGenesisBlock = genesis.GetHash();
+  assert(consensus.hashGenesisBlock == uint256{"00000dcf4d40cbc788bcff6301d01d11f7ada97ee444048a6fa9ef4819e3cfae"});
+  assert(genesis.hashMerkleRoot == uint256{"946448a64c948d5a9c044306689cc47a4e1c12ee591f8871600ab8b9025f7cca"});
+r@r:~/launch/build/bin$ ./mine-genesis \
+    -timestamp 1777337372 \
+    -difficulty 0x1e0ffff0 \
+    -reward 50 \
+    -output testnet_genesis.json
+Byze Genesis Block Miner (RandomX)
+====================================
+
+Parameters:
+  Timestamp: 1777343105 (2026-04-28 02:25:05 UTC)
+  Difficulty Bits: 0x1e0ffff0
+  Genesis Reward: 50 BYZ
+
+Mining genesis block...
+This may take a while...
+
+Target: 00000ffff0000000000000000000000000000000000000000000000000000000
+
+Trying nonce: 100000 (hash: 5d7219845344ac49...)     
+✓ Genesis block found!
+
+Results:
+  Nonce: 132016 (0x203b0)
+  Block Hash: 00000956cc7102070337e5ed07b2da39d10c215e11dd09911b13684ae9523ec1
+  Merkle Root: 946448a64c948d5a9c044306689cc47a4e1c12ee591f8871600ab8b9025f7cca
+  Time: 678 seconds
+  Hashes: 132017
+  Hash Rate: 194 H/s
+
+Update chainparams.cpp with these values:
+  genesis = CreateHermesGenesisBlock(1777343105, 132016, 0x1e0ffff0, 1, 50 * COIN);
+  consensus.hashGenesisBlock = genesis.GetHash();
+  assert(consensus.hashGenesisBlock == uint256{"00000956cc7102070337e5ed07b2da39d10c215e11dd09911b13684ae9523ec1"});
+  assert(genesis.hashMerkleRoot == uint256{"946448a64c948d5a9c044306689cc47a4e1c12ee591f8871600ab8b9025f7cca"});
+r@r:~/launch/build/bin$ ./mine-genesis \
+    -timestamp 1777344000 \
+    -difficulty 0x1e0ffff0 \
+    -reward 50 \
+    -output signet_genesis.json \
+    -signet
+Byze Genesis Block Miner (RandomX)
+====================================
+
+Parameters:
+  Timestamp: 1777345108 (2026-04-28 02:58:28 UTC)
+  Difficulty Bits: 0x1e0ffff0
+  Genesis Reward: 50 BYZ
+
+Mining genesis block...
+This may take a while...
+
+Target: 00000ffff0000000000000000000000000000000000000000000000000000000
+
+Trying nonce: 1300000 (hash: b19332a85a258449...)     
+✓ Genesis block found!
+
+Results:
+  Nonce: 1364421 (0x14d1c5)
+  Block Hash: 00000d8af3eb670f222b544a76f05afee68ec3cb38aeeb2913fc14c735084e38
+  Merkle Root: 946448a64c948d5a9c044306689cc47a4e1c12ee591f8871600ab8b9025f7cca
+  Time: 6168 seconds
+  Hashes: 1364422
+  Hash Rate: 221 H/s
+
+Update chainparams.cpp with these values:
+  genesis = CreateHermesGenesisBlock(1777345108, 1364421, 0x1e0ffff0, 1, 50 * COIN);
+  consensus.hashGenesisBlock = genesis.GetHash();
+  assert(consensus.hashGenesisBlock == uint256{"00000d8af3eb670f222b544a76f05afee68ec3cb38aeeb2913fc14c735084e38"});
+  assert(genesis.hashMerkleRoot == uint256{"946448a64c948d5a9c044306689cc47a4e1c12ee591f8871600ab8b9025f7cca"});
+r@r:~/launch/build/bin$ 
+

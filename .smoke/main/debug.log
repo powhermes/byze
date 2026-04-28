@@ -1,0 +1,98 @@
+
+
+
+
+
+2026-04-28T12:22:38Z RandomX: Initializing dataset for validation (this may take a moment)...
+2026-04-28T12:23:36Z RandomX: Dataset initialization complete
+2026-04-28T12:23:36Z RandomX initialized successfully with FULL MEMORY mode (dataset enabled)
+2026-04-28T12:23:36Z Byze version v0.1.0-unk (release build)
+2026-04-28T12:23:36Z parameter interaction: -listen=0 -> setting -natpmp=0
+2026-04-28T12:23:36Z parameter interaction: -listen=0 -> setting -listenonion=0
+2026-04-28T12:23:36Z parameter interaction: -listen=0 -> setting -i2pacceptincoming=0
+2026-04-28T12:23:36Z Using the 'x86_shani(1way;2way)' SHA256 implementation
+2026-04-28T12:23:37Z Using RdSeed as an additional entropy source
+2026-04-28T12:23:37Z Using RdRand as an additional entropy source
+2026-04-28T12:23:37Z Default data directory /home/r/.byze
+2026-04-28T12:23:37Z Using data directory /home/r/launch/.smoke/main
+2026-04-28T12:23:37Z Config file: /home/r/launch/.smoke/main/bitcoin.conf (not found, skipping)
+2026-04-28T12:23:37Z Command-line arg: connect="0"
+2026-04-28T12:23:37Z Command-line arg: daemon=""
+2026-04-28T12:23:37Z Command-line arg: datadir="launch/.smoke/main"
+2026-04-28T12:23:37Z Command-line arg: discover="0"
+2026-04-28T12:23:37Z Command-line arg: dnsseed="0"
+2026-04-28T12:23:37Z Command-line arg: fallbackfee="0.0001"
+2026-04-28T12:23:37Z Command-line arg: listen="0"
+2026-04-28T12:23:37Z Command-line arg: printtoconsole="0"
+2026-04-28T12:23:37Z Using at most 125 automatic connections (1048576 file descriptors available)
+2026-04-28T12:23:37Z [warning] Relative datadir option 'launch/.smoke/main' specified, which will be interpreted relative to the current working directory '/home/r'. This is fragile, because if bitcoin is started in the future from a different location, it will be unable to locate the current data files. There could also be data loss if bitcoin is started while in a temporary directory.
+2026-04-28T12:23:37Z scheduler thread start
+2026-04-28T12:23:37Z Binding RPC on address ::1 port 8882
+2026-04-28T12:23:37Z [libevent:warning] getaddrinfo: address family for nodename not supported
+2026-04-28T12:23:37Z [warning] Binding RPC on address ::1 port 8882 failed.
+2026-04-28T12:23:37Z Binding RPC on address 127.0.0.1 port 8882
+2026-04-28T12:23:37Z Generated RPC authentication cookie /home/r/launch/.smoke/main/.cookie
+2026-04-28T12:23:37Z Permissions used for cookie: rw-------
+2026-04-28T12:23:37Z Using random cookie authentication.
+2026-04-28T12:23:37Z Starting HTTP server with 16 worker threads
+2026-04-28T12:23:37Z Using wallet directory /home/r/launch/.smoke/main
+2026-04-28T12:23:37Z Using SQLite Version 3.37.2
+2026-04-28T12:23:37Z init message: Verifying wallet(s)…
+2026-04-28T12:23:37Z Using /16 prefix for IP bucketing
+2026-04-28T12:23:37Z init message: Loading P2P addresses…
+2026-04-28T12:23:37Z Creating peers.dat because the file was not found ("/home/r/launch/.smoke/main/peers.dat")
+2026-04-28T12:23:37Z init message: Loading banlist…
+2026-04-28T12:23:37Z Recreating the banlist database
+2026-04-28T12:23:37Z SetNetworkActive: true
+2026-04-28T12:23:37Z /home/r/launch/.smoke/main/fee_estimates.dat is not found. Continue anyway.
+2026-04-28T12:23:37Z Cache configuration:
+2026-04-28T12:23:37Z * Using 2.0 MiB for block index database
+2026-04-28T12:23:37Z * Using 8.0 MiB for chain state database
+2026-04-28T12:23:37Z * Using 440.0 MiB for in-memory UTXO set (plus up to 286.1 MiB of unused mempool space)
+2026-04-28T12:23:37Z Script verification uses 7 additional threads
+2026-04-28T12:23:37Z Using obfuscation key for blocksdir *.dat files (/home/r/launch/.smoke/main/blocks): 'd5fe1e3fe25c31d6'
+2026-04-28T12:23:37Z Opening LevelDB in /home/r/launch/.smoke/main/blocks/index
+2026-04-28T12:23:37Z Opened LevelDB successfully
+2026-04-28T12:23:37Z Using obfuscation key for /home/r/launch/.smoke/main/blocks/index: 0000000000000000
+2026-04-28T12:23:37Z Using 16 MiB out of 16 MiB requested for signature cache, able to store 524288 elements
+2026-04-28T12:23:37Z Using 16 MiB out of 16 MiB requested for script execution cache, able to store 524288 elements
+2026-04-28T12:23:37Z init message: Loading block index…
+2026-04-28T12:23:37Z Validating signatures for all blocks.
+2026-04-28T12:23:37Z Setting nMinimumChainWork=0000000000000000000000000000000000000000000000000000000000000000
+2026-04-28T12:23:37Z Loading block index db: last block file = 0
+2026-04-28T12:23:37Z Loading block index db: last block file info: CBlockFileInfo(blocks=0, size=0, heights=0...0, time=1970-01-01...1970-01-01)
+2026-04-28T12:23:37Z Checking all blk files are present...
+2026-04-28T12:23:37Z Initializing chainstate Chainstate [ibd] @ height -1 (null)
+2026-04-28T12:23:37Z Opening LevelDB in /home/r/launch/.smoke/main/chainstate
+2026-04-28T12:23:37Z Opened LevelDB successfully
+2026-04-28T12:23:37Z Wrote new obfuscation key for /home/r/launch/.smoke/main/chainstate: 1445b82326acb46f
+2026-04-28T12:23:37Z Using obfuscation key for /home/r/launch/.smoke/main/chainstate: 1445b82326acb46f
+2026-04-28T12:23:37Z init message: Verifying blocks…
+2026-04-28T12:23:37Z Block index and chainstate loaded
+2026-04-28T12:23:37Z Setting NODE_NETWORK in non-prune mode
+2026-04-28T12:23:37Z [warning] Disk space for "/home/r/launch/.smoke/main/blocks" may not accommodate the block files. Approximately 810 GB of data will be stored in this directory.
+2026-04-28T12:23:37Z initload thread start
+2026-04-28T12:23:37Z [quantum-mempool] ConnectTip calling removeForBlock height=0 vtx=1 mempool_before=0
+2026-04-28T12:23:37Z [quantum-mempool] ConnectTip removeForBlock done height=0 mempool_after=0
+2026-04-28T12:23:37Z UpdateTip: new best=00000a6ff6ac3c6549d30a1931c8ff1fc98be705c7802164d7fb61b2bec85070 height=0 version=0x00000001 log2_work=20.000022 tx=1 date='2026-04-28T00:49:32Z' progress=0.000000 cache=0.3MiB(0txo)
+2026-04-28T12:23:37Z block tree size = 1
+2026-04-28T12:23:37Z nBestHeight = 0
+2026-04-28T12:23:37Z init message: Starting network threads…
+2026-04-28T12:23:37Z DNS seeding disabled
+2026-04-28T12:23:37Z init message: Done loading
+2026-04-28T12:23:37Z addcon thread start
+2026-04-28T12:23:37Z net thread start
+2026-04-28T12:23:37Z msghand thread start
+2026-04-28T12:23:37Z Failed to open mempool file. Continuing anyway.
+2026-04-28T12:23:37Z initload thread exit
+2026-04-28T12:23:39Z Shutdown in progress...
+2026-04-28T12:23:39Z net thread exit
+2026-04-28T12:23:39Z addcon thread exit
+2026-04-28T12:23:39Z msghand thread exit
+2026-04-28T12:23:39Z scheduler thread exit
+2026-04-28T12:23:39Z Writing 0 mempool transactions to file...
+2026-04-28T12:23:39Z Writing 0 unbroadcast transactions to file.
+2026-04-28T12:23:39Z Dumped mempool: 0.000s to copy, 0.001s to dump, 27 bytes dumped to file
+2026-04-28T12:23:39Z Flushed fee estimates to fee_estimates.dat.
+2026-04-28T12:23:39Z Shutdown done
+2026-04-28T12:23:39Z Mining stopped

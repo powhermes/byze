@@ -1,0 +1,99 @@
+
+
+
+
+
+2026-04-28T12:25:06Z RandomX: Initializing dataset for validation (this may take a moment)...
+2026-04-28T12:26:22Z RandomX: Dataset initialization complete
+2026-04-28T12:26:22Z RandomX initialized successfully with FULL MEMORY mode (dataset enabled)
+2026-04-28T12:26:22Z Byze version v0.1.0-unk (release build)
+2026-04-28T12:26:22Z parameter interaction: -listen=0 -> setting -natpmp=0
+2026-04-28T12:26:22Z parameter interaction: -listen=0 -> setting -listenonion=0
+2026-04-28T12:26:22Z parameter interaction: -listen=0 -> setting -i2pacceptincoming=0
+2026-04-28T12:26:22Z Signet derived magic (message start): 7cbcdca9
+2026-04-28T12:26:22Z Using the 'x86_shani(1way;2way)' SHA256 implementation
+2026-04-28T12:26:22Z Using RdSeed as an additional entropy source
+2026-04-28T12:26:22Z Using RdRand as an additional entropy source
+2026-04-28T12:26:22Z Default data directory /home/r/.byze
+2026-04-28T12:26:22Z Using data directory /home/r/launch/.smoke/signet/signet
+2026-04-28T12:26:22Z Config file: /home/r/launch/.smoke/signet/bitcoin.conf (not found, skipping)
+2026-04-28T12:26:22Z Command-line arg: connect="0"
+2026-04-28T12:26:22Z Command-line arg: daemon=""
+2026-04-28T12:26:22Z Command-line arg: datadir="launch/.smoke/signet"
+2026-04-28T12:26:22Z Command-line arg: discover="0"
+2026-04-28T12:26:22Z Command-line arg: dnsseed="0"
+2026-04-28T12:26:22Z Command-line arg: fallbackfee="0.0001"
+2026-04-28T12:26:22Z Command-line arg: listen="0"
+2026-04-28T12:26:22Z Command-line arg: printtoconsole="0"
+2026-04-28T12:26:22Z Command-line arg: signet=""
+2026-04-28T12:26:22Z Using at most 125 automatic connections (1048576 file descriptors available)
+2026-04-28T12:26:22Z [warning] Relative datadir option 'launch/.smoke/signet' specified, which will be interpreted relative to the current working directory '/home/r'. This is fragile, because if bitcoin is started in the future from a different location, it will be unable to locate the current data files. There could also be data loss if bitcoin is started while in a temporary directory.
+2026-04-28T12:26:22Z scheduler thread start
+2026-04-28T12:26:22Z Binding RPC on address ::1 port 38882
+2026-04-28T12:26:22Z [libevent:warning] getaddrinfo: address family for nodename not supported
+2026-04-28T12:26:22Z [warning] Binding RPC on address ::1 port 38882 failed.
+2026-04-28T12:26:22Z Binding RPC on address 127.0.0.1 port 38882
+2026-04-28T12:26:22Z Generated RPC authentication cookie /home/r/launch/.smoke/signet/signet/.cookie
+2026-04-28T12:26:22Z Permissions used for cookie: rw-------
+2026-04-28T12:26:22Z Using random cookie authentication.
+2026-04-28T12:26:22Z Starting HTTP server with 16 worker threads
+2026-04-28T12:26:22Z Using wallet directory /home/r/launch/.smoke/signet/signet/wallets
+2026-04-28T12:26:22Z Using SQLite Version 3.37.2
+2026-04-28T12:26:22Z init message: Verifying wallet(s)…
+2026-04-28T12:26:22Z Using /16 prefix for IP bucketing
+2026-04-28T12:26:22Z init message: Loading P2P addresses…
+2026-04-28T12:26:22Z Creating peers.dat because the file was not found ("/home/r/launch/.smoke/signet/signet/peers.dat")
+2026-04-28T12:26:22Z init message: Loading banlist…
+2026-04-28T12:26:22Z Recreating the banlist database
+2026-04-28T12:26:22Z SetNetworkActive: true
+2026-04-28T12:26:22Z /home/r/launch/.smoke/signet/signet/fee_estimates.dat is not found. Continue anyway.
+2026-04-28T12:26:22Z Cache configuration:
+2026-04-28T12:26:22Z * Using 2.0 MiB for block index database
+2026-04-28T12:26:22Z * Using 8.0 MiB for chain state database
+2026-04-28T12:26:22Z * Using 440.0 MiB for in-memory UTXO set (plus up to 286.1 MiB of unused mempool space)
+2026-04-28T12:26:22Z Script verification uses 7 additional threads
+2026-04-28T12:26:22Z Using obfuscation key for blocksdir *.dat files (/home/r/launch/.smoke/signet/signet/blocks): '93d5fab863a38464'
+2026-04-28T12:26:22Z Opening LevelDB in /home/r/launch/.smoke/signet/signet/blocks/index
+2026-04-28T12:26:22Z Opened LevelDB successfully
+2026-04-28T12:26:22Z Using obfuscation key for /home/r/launch/.smoke/signet/signet/blocks/index: 0000000000000000
+2026-04-28T12:26:22Z Using 16 MiB out of 16 MiB requested for signature cache, able to store 524288 elements
+2026-04-28T12:26:22Z Using 16 MiB out of 16 MiB requested for script execution cache, able to store 524288 elements
+2026-04-28T12:26:22Z init message: Loading block index…
+2026-04-28T12:26:22Z Validating signatures for all blocks.
+2026-04-28T12:26:22Z Setting nMinimumChainWork=0000000000000000000000000000000000000000000000000000000000000000
+2026-04-28T12:26:22Z Loading block index db: last block file = 0
+2026-04-28T12:26:22Z Loading block index db: last block file info: CBlockFileInfo(blocks=0, size=0, heights=0...0, time=1970-01-01...1970-01-01)
+2026-04-28T12:26:22Z Checking all blk files are present...
+2026-04-28T12:26:22Z Initializing chainstate Chainstate [ibd] @ height -1 (null)
+2026-04-28T12:26:22Z Opening LevelDB in /home/r/launch/.smoke/signet/signet/chainstate
+2026-04-28T12:26:22Z Opened LevelDB successfully
+2026-04-28T12:26:22Z Wrote new obfuscation key for /home/r/launch/.smoke/signet/signet/chainstate: 9746efadbf6d2feb
+2026-04-28T12:26:22Z Using obfuscation key for /home/r/launch/.smoke/signet/signet/chainstate: 9746efadbf6d2feb
+2026-04-28T12:26:22Z init message: Verifying blocks…
+2026-04-28T12:26:22Z Block index and chainstate loaded
+2026-04-28T12:26:22Z Setting NODE_NETWORK in non-prune mode
+2026-04-28T12:26:22Z initload thread start
+2026-04-28T12:26:23Z [quantum-mempool] ConnectTip calling removeForBlock height=0 vtx=1 mempool_before=0
+2026-04-28T12:26:23Z [quantum-mempool] ConnectTip removeForBlock done height=0 mempool_after=0
+2026-04-28T12:26:23Z UpdateTip: new best=00000d8af3eb670f222b544a76f05afee68ec3cb38aeeb2913fc14c735084e38 height=0 version=0x00000001 log2_work=20.000022 tx=1 date='2026-04-28T02:58:28Z' progress=1.000000 cache=0.3MiB(0txo)
+2026-04-28T12:26:23Z block tree size = 1
+2026-04-28T12:26:23Z nBestHeight = 0
+2026-04-28T12:26:23Z Failed to open mempool file. Continuing anyway.
+2026-04-28T12:26:23Z initload thread exit
+2026-04-28T12:26:23Z init message: Starting network threads…
+2026-04-28T12:26:23Z DNS seeding disabled
+2026-04-28T12:26:23Z net thread start
+2026-04-28T12:26:23Z addcon thread start
+2026-04-28T12:26:23Z init message: Done loading
+2026-04-28T12:26:23Z msghand thread start
+2026-04-28T12:26:24Z Shutdown in progress...
+2026-04-28T12:26:24Z addcon thread exit
+2026-04-28T12:26:24Z net thread exit
+2026-04-28T12:26:25Z msghand thread exit
+2026-04-28T12:26:25Z scheduler thread exit
+2026-04-28T12:26:25Z Writing 0 mempool transactions to file...
+2026-04-28T12:26:25Z Writing 0 unbroadcast transactions to file.
+2026-04-28T12:26:25Z Dumped mempool: 0.000s to copy, 0.002s to dump, 27 bytes dumped to file
+2026-04-28T12:26:25Z Flushed fee estimates to fee_estimates.dat.
+2026-04-28T12:26:25Z Shutdown done
+2026-04-28T12:26:25Z Mining stopped
