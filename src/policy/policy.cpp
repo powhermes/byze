@@ -304,9 +304,9 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
             if (stack.size() != 3) {
                 return false;
             }
-            if (stack[0].size() != HERMES_XMSS_SIGNATURE_SIZE) return false;
-            if (stack[1].size() != HERMES_SPHINCS_SIGNATURE_SIZE) return false;
-            if (stack[2].size() != HERMES_DUAL_PUBKEY_BUNDLE_SIZE) return false;
+            if (stack[0].size() != BYZE_XMSS_SIGNATURE_SIZE) return false;
+            if (stack[1].size() != BYZE_SPHINCS_SIGNATURE_SIZE) return false;
+            if (stack[2].size() != BYZE_DUAL_PUBKEY_BUNDLE_SIZE) return false;
         }
     }
     return true;

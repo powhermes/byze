@@ -113,9 +113,9 @@ int CalculateMaximumSignedInputSize(const CTxOut& txout, const COutPoint outpoin
 
         const int64_t wit_elems{3};
         const int64_t wit_count_len{GetSizeOfCompactSize(wit_elems)};
-        const int64_t xmss_len{HERMES_XMSS_SIGNATURE_SIZE};
-        const int64_t sphincs_len{HERMES_SPHINCS_SIGNATURE_SIZE};
-        const int64_t bundle_len{HERMES_DUAL_PUBKEY_BUNDLE_SIZE};
+        const int64_t xmss_len{BYZE_XMSS_SIGNATURE_SIZE};
+        const int64_t sphincs_len{BYZE_SPHINCS_SIGNATURE_SIZE};
+        const int64_t bundle_len{BYZE_DUAL_PUBKEY_BUNDLE_SIZE};
         const int64_t wit_bytes{
             wit_count_len +
             GetSizeOfCompactSize(xmss_len) + xmss_len +
@@ -180,9 +180,9 @@ static std::optional<int64_t> GetSignedTxinWeight(const CWallet* wallet, const C
 
         const int64_t wit_elems{3};
         const int64_t wit_count_len{GetSizeOfCompactSize(wit_elems)};
-        const int64_t xmss_len{HERMES_XMSS_SIGNATURE_SIZE};
-        const int64_t sphincs_len{HERMES_SPHINCS_SIGNATURE_SIZE};
-        const int64_t bundle_len{HERMES_DUAL_PUBKEY_BUNDLE_SIZE};
+        const int64_t xmss_len{BYZE_XMSS_SIGNATURE_SIZE};
+        const int64_t sphincs_len{BYZE_SPHINCS_SIGNATURE_SIZE};
+        const int64_t bundle_len{BYZE_DUAL_PUBKEY_BUNDLE_SIZE};
         const int64_t wit_bytes{
             wit_count_len +
             GetSizeOfCompactSize(xmss_len) + xmss_len +

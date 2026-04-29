@@ -17,18 +17,20 @@
 
 namespace {
 
-// Global RandomX cache and VM instances
-// RandomX requires a key to initialize the cache. For Byze, we use a fixed network key
-// derived from the network magic bytes to ensure consistent hashing across all nodes.
-static constexpr unsigned char HERMES_RANDOMX_KEY[] = {
-    0x48, 0x45, 0x52, 0x4D,  // "HERM" - network magic
-    0x48, 0x65, 0x72, 0x6D,  // "Herm" - project name
-    0x65, 0x73, 0x20, 0x43,  // "es C" - continuation
-    0x6F, 0x69, 0x6E, 0x20,  // "oin " - continuation
-    0x52, 0x61, 0x6E, 0x64,  // "Rand" - RandomX
-    0x6F, 0x6D, 0x58, 0x20,  // "omX " - continuation
-    0x4E, 0x65, 0x74, 0x77,  // "Netw" - Network
-    0x6F, 0x72, 0x6B, 0x00   // "ork" + null
+// Global RandomX cache and VM instances.
+//
+// RandomX requires a key to initialize the cache. This key is consensus-critical:
+// changing it will change PoW hashes and fork the network. Keep the byte sequence
+// stable once mainnet is live.
+static constexpr unsigned char BYZE_RANDOMX_KEY_V1[] = {
+    0x48, 0x45, 0x52, 0x4D,
+    0x48, 0x65, 0x72, 0x6D,
+    0x65, 0x73, 0x20, 0x43,
+    0x6F, 0x69, 0x6E, 0x20,
+    0x52, 0x61, 0x6E, 0x64,
+    0x6F, 0x6D, 0x58, 0x20,
+    0x4E, 0x65, 0x74, 0x77,
+    0x6F, 0x72, 0x6B, 0x00
 };
 
 static std::mutex randomx_mutex;
@@ -67,7 +69,7 @@ bool InitializeRandomX(bool disable_jit_for_testing)
         return false;
     }
     
-    randomx_init_cache(g_cache, HERMES_RANDOMX_KEY, sizeof(HERMES_RANDOMX_KEY));
+    randomx_init_cache(g_cache, BYZE_RANDOMX_KEY_V1, sizeof(BYZE_RANDOMX_KEY_V1));
     
     // For full memory mode, we need a dataset
     // IMPORTANT: Both mining and validation MUST use the same mode (full memory)
@@ -187,16 +189,16 @@ RandomXMiningContext* CreateMiningContext(size_t threads)
         return nullptr;
     }
     
-    // Use the same key as consensus validation
-    constexpr unsigned char HERMES_RANDOMX_KEY[] = {
-        0x48, 0x45, 0x52, 0x4D,  // "HERM" - network magic
-        0x48, 0x65, 0x72, 0x6D,  // "Herm" - project name
-        0x65, 0x73, 0x20, 0x43,  // "es C" - continuation
-        0x6F, 0x69, 0x6E, 0x20,  // "oin " - continuation
-        0x52, 0x61, 0x6E, 0x64,  // "Rand" - RandomX
-        0x6F, 0x6D, 0x58, 0x20,  // "omX " - continuation
-        0x4E, 0x65, 0x74, 0x77,  // "Netw" - Network
-        0x6F, 0x72, 0x6B, 0x00   // "ork" + null
+    // Use the same key as consensus validation (consensus-critical; see above).
+    constexpr unsigned char BYZE_RANDOMX_KEY_V1[] = {
+        0x48, 0x45, 0x52, 0x4D,
+        0x48, 0x65, 0x72, 0x6D,
+        0x65, 0x73, 0x20, 0x43,
+        0x6F, 0x69, 0x6E, 0x20,
+        0x52, 0x61, 0x6E, 0x64,
+        0x6F, 0x6D, 0x58, 0x20,
+        0x4E, 0x65, 0x74, 0x77,
+        0x6F, 0x72, 0x6B, 0x00
     };
     
     // Get recommended flags for this machine
@@ -212,7 +214,7 @@ RandomXMiningContext* CreateMiningContext(size_t threads)
         return nullptr;
     }
     
-    randomx_init_cache(cache, HERMES_RANDOMX_KEY, sizeof(HERMES_RANDOMX_KEY));
+    randomx_init_cache(cache, BYZE_RANDOMX_KEY_V1, sizeof(BYZE_RANDOMX_KEY_V1));
     
     // Allocate dataset for full memory mode (shared across all VMs)
     randomx_dataset* dataset = randomx_alloc_dataset(flags);

@@ -1697,8 +1697,8 @@ bool GenericTransactionSignatureChecker<T>::VerifyQuantumDualSignature(std::span
     static constexpr size_t SPHINCS_PUBKEY_SIZE = crypto::sphincs_public_key::KEY_SIZE * 3;
     static constexpr size_t DUAL_PUBKEY_SIZE = XMSS_PUBKEY_SIZE + SPHINCS_PUBKEY_SIZE;
 
-    if (xmss_sig.size() != HERMES_XMSS_SIGNATURE_SIZE ||
-        sphincs_sig.size() != HERMES_SPHINCS_SIGNATURE_SIZE ||
+    if (xmss_sig.size() != BYZE_XMSS_SIGNATURE_SIZE ||
+        sphincs_sig.size() != BYZE_SPHINCS_SIGNATURE_SIZE ||
         dual_pubkey.size() != DUAL_PUBKEY_SIZE) {
         return false;
     }

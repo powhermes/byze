@@ -227,14 +227,14 @@ static bool GenerateBlock(ChainstateManager& chainman, CBlock&& block, uint64_t&
     
     if (require_quantum && !isGenesis) {
         crypto::quantum_safe_manager qmgr;
-        if (qmgr.ensure_modern_keys(HERMES_DEFAULT_XMSS_TREE_HEIGHT, HERMES_DEFAULT_SPHINCS_LEVEL)) {
+        if (qmgr.ensure_modern_keys(BYZE_DEFAULT_XMSS_TREE_HEIGHT, BYZE_DEFAULT_SPHINCS_LEVEL)) {
             uint256 block_hash = block.GetHash();
             
             // Sign block hash with both XMSS and SPHINCS+
             std::vector<uint8_t> xmss_sig = qmgr.sign(block_hash, crypto::quantum_algorithm::XMSS);
             std::vector<uint8_t> sphincs_sig = qmgr.sign(block_hash, crypto::quantum_algorithm::SPHINCS_PLUS);
             
-            if (xmss_sig.size() == HERMES_XMSS_SIGNATURE_SIZE && sphincs_sig.size() == HERMES_SPHINCS_SIGNATURE_SIZE) {
+            if (xmss_sig.size() == BYZE_XMSS_SIGNATURE_SIZE && sphincs_sig.size() == BYZE_SPHINCS_SIGNATURE_SIZE) {
                 block.quantum_signatures.xmss_signature = std::move(xmss_sig);
                 block.quantum_signatures.sphincs_signature = std::move(sphincs_sig);
                 block.quantum_signatures.dual_public_key = qmgr.get_dual_public_key_bundle();

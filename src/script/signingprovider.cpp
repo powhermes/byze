@@ -224,7 +224,7 @@ bool FlatSigningProvider::SignQuantumSighash(const uint256& sighash, std::span<c
 
     xmss_sig = manager.sign(sighash, crypto::quantum_algorithm::XMSS);
     sphincs_sig = manager.sign(sighash, crypto::quantum_algorithm::SPHINCS_PLUS);
-    if (xmss_sig.size() != HERMES_XMSS_SIGNATURE_SIZE || sphincs_sig.size() != HERMES_SPHINCS_SIGNATURE_SIZE) {
+    if (xmss_sig.size() != BYZE_XMSS_SIGNATURE_SIZE || sphincs_sig.size() != BYZE_SPHINCS_SIGNATURE_SIZE) {
         return false;
     }
 

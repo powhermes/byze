@@ -11,9 +11,9 @@ from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
 
 # Keep these in sync with src/crypto/quantum_safe_config.h
-HERMES_XMSS_SIGNATURE_SIZE = 1028
-HERMES_SPHINCS_SIGNATURE_SIZE = 1024
-HERMES_DUAL_PUBKEY_BUNDLE_SIZE = 192
+BYZE_XMSS_SIGNATURE_SIZE = 1028
+BYZE_SPHINCS_SIGNATURE_SIZE = 1024
+BYZE_DUAL_PUBKEY_BUNDLE_SIZE = 192
 
 
 def ser_quantum_sigdata(*, xmss: bytes, sphincs: bytes, dual: bytes) -> bytes:
@@ -89,7 +89,7 @@ class QuantumBlockSigRejectTest(BitcoinTestFramework):
         self.log.info("Submit block with only XMSS signature present (SPHINCS missing -> bad-quantum-sig-missing)")
         xmss_only_hex = replace_quantum_sig_tail(
             block_hex,
-            xmss=b"\x11" * HERMES_XMSS_SIGNATURE_SIZE,
+            xmss=b"\x11" * BYZE_XMSS_SIGNATURE_SIZE,
             sphincs=b"",
             dual=b"",
         )
@@ -99,7 +99,7 @@ class QuantumBlockSigRejectTest(BitcoinTestFramework):
         sphincs_only_hex = replace_quantum_sig_tail(
             block_hex,
             xmss=b"",
-            sphincs=b"\x22" * HERMES_SPHINCS_SIGNATURE_SIZE,
+            sphincs=b"\x22" * BYZE_SPHINCS_SIGNATURE_SIZE,
             dual=b"",
         )
         self.assert_reject_everywhere("partial_sphincs_only", sphincs_only_hex, "bad-quantum-sig-missing")
@@ -107,36 +107,36 @@ class QuantumBlockSigRejectTest(BitcoinTestFramework):
         self.log.info("XMSS signature corrupted")
         xmss_corrupt_hex = replace_quantum_sig_tail(
             block_hex,
-            xmss=bytes([0xAB]) * HERMES_XMSS_SIGNATURE_SIZE,
-            sphincs=bytes([0xBB]) * HERMES_SPHINCS_SIGNATURE_SIZE,
-            dual=bytes([0xCC]) * HERMES_DUAL_PUBKEY_BUNDLE_SIZE,
+            xmss=bytes([0xAB]) * BYZE_XMSS_SIGNATURE_SIZE,
+            sphincs=bytes([0xBB]) * BYZE_SPHINCS_SIGNATURE_SIZE,
+            dual=bytes([0xCC]) * BYZE_DUAL_PUBKEY_BUNDLE_SIZE,
         )
         self.assert_reject_everywhere("xmss_corrupted", xmss_corrupt_hex, "bad-quantum-sig")
 
         self.log.info("SPHINCS signature corrupted")
         sphincs_corrupt_hex = replace_quantum_sig_tail(
             block_hex,
-            xmss=bytes([0xAA]) * HERMES_XMSS_SIGNATURE_SIZE,
-            sphincs=bytes([0xBC]) * HERMES_SPHINCS_SIGNATURE_SIZE,
-            dual=bytes([0xCC]) * HERMES_DUAL_PUBKEY_BUNDLE_SIZE,
+            xmss=bytes([0xAA]) * BYZE_XMSS_SIGNATURE_SIZE,
+            sphincs=bytes([0xBC]) * BYZE_SPHINCS_SIGNATURE_SIZE,
+            dual=bytes([0xCC]) * BYZE_DUAL_PUBKEY_BUNDLE_SIZE,
         )
         self.assert_reject_everywhere("sphincs_corrupted", sphincs_corrupt_hex, "bad-quantum-sig")
 
         self.log.info("Dual public key bundle corrupted")
         dual_corrupt_hex = replace_quantum_sig_tail(
             block_hex,
-            xmss=bytes([0xAA]) * HERMES_XMSS_SIGNATURE_SIZE,
-            sphincs=bytes([0xBB]) * HERMES_SPHINCS_SIGNATURE_SIZE,
-            dual=bytes([0xCD]) * HERMES_DUAL_PUBKEY_BUNDLE_SIZE,
+            xmss=bytes([0xAA]) * BYZE_XMSS_SIGNATURE_SIZE,
+            sphincs=bytes([0xBB]) * BYZE_SPHINCS_SIGNATURE_SIZE,
+            dual=bytes([0xCD]) * BYZE_DUAL_PUBKEY_BUNDLE_SIZE,
         )
         self.assert_reject_everywhere("dual_bundle_corrupted", dual_corrupt_hex, "bad-quantum-sig")
 
         self.log.info("Correct sizes but invalid cryptographic signatures")
         invalid_crypto_hex = replace_quantum_sig_tail(
             block_hex,
-            xmss=bytes([0x5A]) * HERMES_XMSS_SIGNATURE_SIZE,
-            sphincs=bytes([0xA5]) * HERMES_SPHINCS_SIGNATURE_SIZE,
-            dual=bytes([0x3C]) * HERMES_DUAL_PUBKEY_BUNDLE_SIZE,
+            xmss=bytes([0x5A]) * BYZE_XMSS_SIGNATURE_SIZE,
+            sphincs=bytes([0xA5]) * BYZE_SPHINCS_SIGNATURE_SIZE,
+            dual=bytes([0x3C]) * BYZE_DUAL_PUBKEY_BUNDLE_SIZE,
         )
         self.assert_reject_everywhere("invalid_crypto_signatures", invalid_crypto_hex, "bad-quantum-sig")
 

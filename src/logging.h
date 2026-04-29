@@ -96,7 +96,7 @@ namespace BCLog {
         TXPACKAGES  = (CategoryMask{1} << 28),
         KERNEL      = (CategoryMask{1} << 29),
         /** Byze: compact-block / P2P paths that request full blocks for quantum tail (use -debug=byze-p2p). */
-        HERMES_P2P  = (CategoryMask{1} << 30),
+        BYZE_P2P  = (CategoryMask{1} << 30),
         ALL         = ~NONE,
     };
     enum class Level {

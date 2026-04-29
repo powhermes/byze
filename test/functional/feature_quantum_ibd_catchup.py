@@ -10,9 +10,9 @@ from test_framework.util import assert_equal
 from decimal import Decimal
 
 # Keep these in sync with src/crypto/quantum_safe_config.h
-HERMES_XMSS_SIGNATURE_SIZE = 1028
-HERMES_SPHINCS_SIGNATURE_SIZE = 1024
-HERMES_DUAL_PUBKEY_BUNDLE_SIZE = 192
+BYZE_XMSS_SIGNATURE_SIZE = 1028
+BYZE_SPHINCS_SIGNATURE_SIZE = 1024
+BYZE_DUAL_PUBKEY_BUNDLE_SIZE = 192
 
 
 def tx_confirmed_in_chain(node, txid, max_blocks=512):
@@ -100,9 +100,9 @@ class QuantumIBDCatchupTest(BitcoinTestFramework):
                 stack = list(tx.wit.vtxinwit[0].scriptWitness.stack)
                 if (
                     len(stack) == 3
-                    and len(stack[0]) == HERMES_XMSS_SIGNATURE_SIZE
-                    and len(stack[1]) == HERMES_SPHINCS_SIGNATURE_SIZE
-                    and len(stack[2]) == HERMES_DUAL_PUBKEY_BUNDLE_SIZE
+                    and len(stack[0]) == BYZE_XMSS_SIGNATURE_SIZE
+                    and len(stack[1]) == BYZE_SPHINCS_SIGNATURE_SIZE
+                    and len(stack[2]) == BYZE_DUAL_PUBKEY_BUNDLE_SIZE
                 ):
                     return signed_hex
             # Keep trying other candidate witness-v1 UTXOs.

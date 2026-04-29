@@ -3997,21 +3997,21 @@ bool IsQuantumBlockSignaturePolicyRequired(const CBlock& block, const Consensus:
 static bool VerifyBlockQuantumSignatures(const CBlock& block)
 {
     static constexpr size_t XMSS_PUBKEY_SIZE = crypto::xmss_public_key::KEY_SIZE * 3;
-    static constexpr size_t DUAL_PUBKEY_SIZE = HERMES_DUAL_PUBKEY_BUNDLE_SIZE;
+    static constexpr size_t DUAL_PUBKEY_SIZE = BYZE_DUAL_PUBKEY_BUNDLE_SIZE;
 
     const uint256 block_hash = block.GetHash();
     const std::string block_hash_str = block_hash.ToString();
 
-    if (block.quantum_signatures.xmss_signature.size() != HERMES_XMSS_SIGNATURE_SIZE ||
-        block.quantum_signatures.sphincs_signature.size() != HERMES_SPHINCS_SIGNATURE_SIZE ||
+    if (block.quantum_signatures.xmss_signature.size() != BYZE_XMSS_SIGNATURE_SIZE ||
+        block.quantum_signatures.sphincs_signature.size() != BYZE_SPHINCS_SIGNATURE_SIZE ||
         block.quantum_signatures.dual_public_key.size() != DUAL_PUBKEY_SIZE) {
         LogError("[byze] block_sig_reject hash=%s reason=wrong_sig_sizes xmss_sz=%zu sphincs_sz=%zu dual_sz=%zu (expected xmss=%u sphincs=%u dual=%u)\n",
             block_hash_str,
             block.quantum_signatures.xmss_signature.size(),
             block.quantum_signatures.sphincs_signature.size(),
             block.quantum_signatures.dual_public_key.size(),
-            static_cast<unsigned>(HERMES_XMSS_SIGNATURE_SIZE),
-            static_cast<unsigned>(HERMES_SPHINCS_SIGNATURE_SIZE),
+            static_cast<unsigned>(BYZE_XMSS_SIGNATURE_SIZE),
+            static_cast<unsigned>(BYZE_SPHINCS_SIGNATURE_SIZE),
             static_cast<unsigned>(DUAL_PUBKEY_SIZE));
         LogDebug(BCLog::VALIDATION, "[quantum-cmp] path=verify stage=size_mismatch block_hash=%s\n", block_hash_str);
         return false;

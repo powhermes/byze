@@ -77,7 +77,7 @@ static CBlock CreateGenesisBlock(const char* pszTimestamp, const CScript& genesi
  *     CTxOut(nValue=50.00000000, scriptPubKey=0x5F1DF16B2B704C8A578D0B)
  *   vMerkleTree: 4a5e1e
  */
-static CBlock CreateHermesGenesisBlock(uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
+static CBlock CreateByzeGenesisBlock(uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
 {
     const char* pszTimestamp = "Byze (BYZ) genesis - RandomX PoW - 2026-04-27";
     const CScript genesisOutputScript = CScript() << "04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f"_hex << OP_CHECKSIG;
@@ -139,7 +139,8 @@ public:
          * The message start string is designed to be unlikely to occur in normal data.
          * The characters are rarely used upper ASCII, not valid as UTF-8, and produce
          * a large 32-bit integer with any alignment.
-         * Byze uses "HERM" (0x48 0x45 0x52 0x4D) to prevent connection to Bitcoin network.
+         * Byze uses the message start bytes 0x48 0x45 0x52 0x4D to prevent
+         * accidental connection to the Bitcoin network.
          */
         pchMessageStart[0] = 0x48;  // 'H'
         pchMessageStart[1] = 0x45;  // 'E'
@@ -151,7 +152,7 @@ public:
         m_assumed_chain_state_size = 14;
 
         // Byze genesis block - mined with RandomX
-        genesis = CreateHermesGenesisBlock(1777337372, 847791, 0x1e0ffff0, 1, 50 * COIN);
+        genesis = CreateByzeGenesisBlock(1777337372, 847791, 0x1e0ffff0, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
         assert(consensus.hashGenesisBlock == uint256{"00000a6ff6ac3c6549d30a1931c8ff1fc98be705c7802164d7fb61b2bec85070"});
         assert(genesis.hashMerkleRoot == uint256{"946448a64c948d5a9c044306689cc47a4e1c12ee591f8871600ab8b9025f7cca"});
@@ -268,7 +269,7 @@ public:
         m_assumed_chain_state_size = 19;
 
         // Byze testnet genesis block (RandomX-mined)
-        genesis = CreateHermesGenesisBlock(1777342551, 71874, 0x1e0ffff0, 1, 50 * COIN);
+        genesis = CreateByzeGenesisBlock(1777342551, 71874, 0x1e0ffff0, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
         assert(consensus.hashGenesisBlock == uint256{"00000dcf4d40cbc788bcff6301d01d11f7ada97ee444048a6fa9ef4819e3cfae"});
         assert(genesis.hashMerkleRoot == uint256{"946448a64c948d5a9c044306689cc47a4e1c12ee591f8871600ab8b9025f7cca"});
@@ -361,7 +362,7 @@ public:
 
         // TestNet4 uses Byze-style genesis block with RandomX
         // TODO: Mine proper TestNet4 genesis block with RandomX if needed
-        genesis = CreateHermesGenesisBlock(1714777860, 0, 0x1e0fffff, 1, 50 * COIN);
+        genesis = CreateByzeGenesisBlock(1714777860, 0, 0x1e0fffff, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
         // Note: TestNet4 assertions removed - genesis block needs to be mined with RandomX
         // Old Bitcoin TestNet4 hash was: 00000000da84f2bafbbc53dee25a72ae507ff4914b867c565be350b0da8bf043
@@ -461,7 +462,7 @@ public:
         m_assumed_chain_state_size = 14;
 
         // Byze stagenet genesis block (RandomX-mined)
-        genesis = CreateHermesGenesisBlock(1735696800, 1296020, 0x1e0ffff0, 1, 50 * COIN);  // 2025-01-01 02:00:00 UTC
+        genesis = CreateByzeGenesisBlock(1735696800, 1296020, 0x1e0ffff0, 1, 50 * COIN);  // 2025-01-01 02:00:00 UTC
         consensus.hashGenesisBlock = genesis.GetHash();
         assert(consensus.hashGenesisBlock == uint256{"000001f9977705d26cb7b9ac13b2bc935b383f2a434b31b9c756790bac8bfee3"});
         assert(genesis.hashMerkleRoot == uint256{"ec80e57f3f84ef5f044e1614ff1514de2dae0264101426a3b716d95cdcfd0490"});
@@ -603,7 +604,7 @@ public:
         nPruneAfterHeight = 1000;
 
         // Signet remains signature-authorized (BIP325), while genesis is pinned here.
-        genesis = CreateHermesGenesisBlock(1777345108, 1364421, 0x1e0ffff0, 1, 50 * COIN);
+        genesis = CreateByzeGenesisBlock(1777345108, 1364421, 0x1e0ffff0, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
         assert(consensus.hashGenesisBlock == uint256{"00000d8af3eb670f222b544a76f05afee68ec3cb38aeeb2913fc14c735084e38"});
         assert(genesis.hashMerkleRoot == uint256{"946448a64c948d5a9c044306689cc47a4e1c12ee591f8871600ab8b9025f7cca"});
@@ -710,7 +711,7 @@ public:
         }
 
         // RegTest uses Byze-style genesis block with RandomX
-        genesis = CreateHermesGenesisBlock(1777343105, 132016, 0x1e0ffff0, 1, 50 * COIN);
+        genesis = CreateByzeGenesisBlock(1777343105, 132016, 0x1e0ffff0, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
         assert(consensus.hashGenesisBlock == uint256{"00000956cc7102070337e5ed07b2da39d10c215e11dd09911b13684ae9523ec1"});
         assert(genesis.hashMerkleRoot == uint256{"946448a64c948d5a9c044306689cc47a4e1c12ee591f8871600ab8b9025f7cca"});

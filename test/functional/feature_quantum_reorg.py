@@ -12,29 +12,14 @@ from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
 
 # Keep these in sync with src/crypto/quantum_safe_config.h
-HERMES_XMSS_SIGNATURE_SIZE = 1028
-HERMES_SPHINCS_SIGNATURE_SIZE = 1024
-HERMES_DUAL_PUBKEY_BUNDLE_SIZE = 192
+BYZE_XMSS_SIGNATURE_SIZE = 1028
+BYZE_SPHINCS_SIGNATURE_SIZE = 1024
+BYZE_DUAL_PUBKEY_BUNDLE_SIZE = 192
 
 
 def read_xmss_index(key_path):
     """Read XMSS leaf index from Byze quantum_wallet.keys (same layout as feature_quantum_multinode_consensus)."""
     data = key_path.read_bytes()
-    if data.startswith(b"HERMESQ1"):
-        off = 8
-
-        def read_blob():
-            nonlocal off
-            ln = struct.unpack("<I", data[off:off + 4])[0]
-            off += 4
-            blob = data[off:off + ln]
-            off += ln
-            return blob
-
-        xmss_priv = read_blob()
-        assert len(xmss_priv) >= 36, "invalid XMSS private blob length"
-        return struct.unpack("<I", xmss_priv[32:36])[0]
-
     assert len(data) >= 6, "invalid quantum key file length"
     magic, = struct.unpack("<I", data[0:4])
     assert magic == 0x5146534B, "invalid quantum key file magic"
@@ -158,9 +143,9 @@ class QuantumReorgTest(BitcoinTestFramework):
             stack = list(tx.wit.vtxinwit[0].scriptWitness.stack)
             if (
                 len(stack) == 3
-                and len(stack[0]) == HERMES_XMSS_SIGNATURE_SIZE
-                and len(stack[1]) == HERMES_SPHINCS_SIGNATURE_SIZE
-                and len(stack[2]) == HERMES_DUAL_PUBKEY_BUNDLE_SIZE
+                and len(stack[0]) == BYZE_XMSS_SIGNATURE_SIZE
+                and len(stack[1]) == BYZE_SPHINCS_SIGNATURE_SIZE
+                and len(stack[2]) == BYZE_DUAL_PUBKEY_BUNDLE_SIZE
             ):
                 prevout_spk = utxo.get("scriptPubKey", "")
                 if not isinstance(prevout_spk, str) or not prevout_spk.startswith("5120") or len(prevout_spk) != 68:

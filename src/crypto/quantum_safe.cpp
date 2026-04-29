@@ -1474,7 +1474,7 @@ namespace crypto
 
   bool is_quantum_safe_enabled()
   {
-    return HERMES_QUANTUM_SAFE_ENABLED != 0;
+    return BYZE_QUANTUM_SAFE_ENABLED != 0;
   }
 
   bool quantum_safe_manager::has_dual_keys() const

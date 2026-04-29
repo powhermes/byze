@@ -3436,7 +3436,7 @@ void PeerManagerImpl::ProcessCompactBlockTxns(CNode& pfrom, Peer& peer, const Bl
             // If policy requires quantum signatures, request the full block instead of accepting a reconstructed block.
             if (IsQuantumBlockSignaturePolicyRequired(*pblock, Params().GetConsensus(), /*fCheckPOW=*/true) &&
                 (pblock->quantum_signatures.xmss_signature.empty() || pblock->quantum_signatures.sphincs_signature.empty())) {
-                LogDebug(BCLog::HERMES_P2P, "[byze-p2p] compact_fallback=1 block_hash=%s peer=%d action=request_full_block reason=missing_quantum_tail\n",
+                LogDebug(BCLog::BYZE_P2P, "[byze-p2p] compact_fallback=1 block_hash=%s peer=%d action=request_full_block reason=missing_quantum_tail\n",
                     pblock->GetHash().ToString(), pfrom.GetId());
                 if (first_in_flight) {
                     std::vector<CInv> invs;
@@ -4636,7 +4636,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         if (fBlockReconstructed) {
             if (IsQuantumBlockSignaturePolicyRequired(*pblock, Params().GetConsensus(), /*fCheckPOW=*/true) &&
                 (pblock->quantum_signatures.xmss_signature.empty() || pblock->quantum_signatures.sphincs_signature.empty())) {
-                LogDebug(BCLog::HERMES_P2P, "[byze-p2p] compact_fallback=1 block_hash=%s peer=%d action=request_full_block reason=missing_quantum_tail path=optimistic_reconstruct\n",
+                LogDebug(BCLog::BYZE_P2P, "[byze-p2p] compact_fallback=1 block_hash=%s peer=%d action=request_full_block reason=missing_quantum_tail path=optimistic_reconstruct\n",
                     pblock->GetHash().ToString(), pfrom.GetId());
                 if (first_in_flight) {
                     std::vector<CInv> vInv(1);

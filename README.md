@@ -1,23 +1,13 @@
-Byze - Bitcoin-Derived Experimental Chain with RandomX + Quantum-Safe Signatures
+Byze (BYZ)
 ========================================================================================
 
-**⚠️ WARNING: This is an experimental project. Current release (v0.1.0-regtest-stable) is REGTEST-ONLY and NOT FOR MAINNET USE. ⚠️**
+Byze is a Bitcoin Core-derived chain with:
+- **RandomX** proof-of-work (CPU-friendly; replaces SHA256d)
+- **Dual post-quantum block signatures**: **XMSS + SPHINCS+** enforced on mainnet blocks
 
-Byze is a Bitcoin Core fork that integrates:
-- **RandomX** CPU-based proof-of-work mining (replacing SHA256)
-- **XMSS/SPHINCS+** quantum-safe signature schemes
-- Experimental consensus modifications for quantum-resistant blockchain
+## Status
 
-## Current Status: v0.1.0-regtest-stable
-
-This release represents a **stable regtest baseline** with working RandomX mining and quantum-safe signatures. It is intended **ONLY for development and testing** in regtest mode.
-
-### ⚠️ Important Limitations
-
-- **Regtest-only**: No testnet or mainnet support yet
-- **Experimental**: Consensus rules not finalized for production
-- **Not audited**: Security review pending
-- **Do not use with real funds**
+Mainnet genesis has been mined and `chainparams` updated. `byze-qt` loads and the full Byze binary set is produced (e.g. `byzed`, `byze-cli`, `byze-qt`, `byze-wallet`, `byze-tx`, `byze-util`).
 
 ## What is Byze?
 
@@ -26,30 +16,42 @@ Byze is an experimental blockchain project that explores:
 - Post-quantum cryptography with XMSS and SPHINCS+ signatures
 - Bitcoin-compatible transaction and block structures
 
-The current release (v0.1.0-regtest-stable) provides a working foundation for:
-- Regtest development and testing
-- Mining infrastructure validation
-- Quantum-safe signature integration verification
-- Future testnet preparation
+While Byze is a Bitcoin Core fork, it is **not Bitcoin**. It has Byze-specific consensus and address/network parameters.
 
-## Quick Start (Regtest Only)
+## Tokenomics (Mainnet)
+
+- **Ticker / unit**: BYZ
+- **Target block time**: 10 minutes
+- **Initial block subsidy**: 50 BYZ
+- **Halving interval**: 210,000 blocks
+- **Supply (Bitcoin-style schedule)**: approaches ~21,000,000 BYZ over time (subsidy halves until it reaches 0)
+
+Source of truth:
+- Subsidy schedule: `src/validation.cpp` (`GetBlockSubsidy`)
+- Consensus parameters (spacing/halving): `src/kernel/chainparams.cpp`
+
+## Build (Ubuntu)
 
 ```bash
-# Build (see BUILD.md for details)
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
-
-# Start regtest daemon
-./build/bin/byzed -regtest -daemon
-
-# Create wallet and mine blocks
-./build/bin/byze-cli -regtest createwallet test
-ADDR=$(./build/bin/byze-cli -regtest -rpcwallet=test getnewaddress)
-./build/bin/byze-cli -regtest -rpcwallet=test generatetoaddress 1 "$ADDR"
+./build-ubuntu.sh
 ```
 
-See [MINING_GUIDE.md](MINING_GUIDE.md) and [RELEASE_NOTES_v0.1.0.md](RELEASE_NOTES_v0.1.0.md) for detailed information.
+## Run
+
+```bash
+# Start node (mainnet)
+./src/byzed -daemon
+
+# Basic RPC sanity check
+./src/byze-cli getblockchaininfo
+```
+
+## Mining notes (RandomX + quantum block signatures)
+
+- **RandomX is consensus PoW**: block headers must satisfy `CheckProofOfWork()` using `RandomXHash()`.
+- **Mainnet requires XMSS + SPHINCS+ block signatures**: blocks without both signatures are rejected by consensus (`CheckBlock()`).
+- Built-in CPU mining paths (`startmining`, `generatetoaddress`, `generatetodescriptor`) add the required quantum signatures automatically after finding a valid nonce.
+- External miners using `getblocktemplate` must ensure the submitted block includes the required quantum signature tail before calling `submitblock`.
 
 Further information about Bitcoin Core is available in the [doc folder](/doc).
 

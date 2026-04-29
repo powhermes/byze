@@ -13,9 +13,9 @@ from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error
 
 # Keep these in sync with src/crypto/quantum_safe_config.h
-HERMES_XMSS_SIGNATURE_SIZE = 1028
-HERMES_SPHINCS_SIGNATURE_SIZE = 1024
-HERMES_DUAL_PUBKEY_BUNDLE_SIZE = 192
+BYZE_XMSS_SIGNATURE_SIZE = 1028
+BYZE_SPHINCS_SIGNATURE_SIZE = 1024
+BYZE_DUAL_PUBKEY_BUNDLE_SIZE = 192
 
 
 def ser_quantum_sigdata(*, xmss: bytes, sphincs: bytes, dual: bytes) -> bytes:
@@ -44,22 +44,6 @@ def read_xmss_index(key_path):
     #   uint32 sphincs_priv_size; sphincs_priv_bytes
     #   uint32 sphincs_pub_size;  sphincs_pub_bytes
     #
-    # Older internal test prototypes used a "HERMESQ1" prefixed blob stream; keep compatibility.
-    if data.startswith(b"HERMESQ1"):
-        off = 8
-
-        def read_blob():
-            nonlocal off
-            ln = struct.unpack("<I", data[off:off + 4])[0]
-            off += 4
-            blob = data[off:off + ln]
-            off += ln
-            return blob
-
-        xmss_priv = read_blob()
-        assert len(xmss_priv) >= 36, "invalid XMSS private blob length"
-        return struct.unpack("<I", xmss_priv[32:36])[0]
-
     assert len(data) >= 6, "invalid quantum key file length"
     magic, = struct.unpack("<I", data[0:4])
     assert magic == 0x5146534B, "invalid quantum key file magic"
@@ -200,9 +184,9 @@ class QuantumMultinodeConsensusTest(BitcoinTestFramework):
             stack = list(tx.wit.vtxinwit[0].scriptWitness.stack)
             if (
                 len(stack) == 3
-                and len(stack[0]) == HERMES_XMSS_SIGNATURE_SIZE
-                and len(stack[1]) == HERMES_SPHINCS_SIGNATURE_SIZE
-                and len(stack[2]) == HERMES_DUAL_PUBKEY_BUNDLE_SIZE
+                and len(stack[0]) == BYZE_XMSS_SIGNATURE_SIZE
+                and len(stack[1]) == BYZE_SPHINCS_SIGNATURE_SIZE
+                and len(stack[2]) == BYZE_DUAL_PUBKEY_BUNDLE_SIZE
             ):
                 prevout_spk = utxo.get("scriptPubKey", "")
                 if not isinstance(prevout_spk, str) or not prevout_spk.startswith("5120") or len(prevout_spk) != 68:
@@ -229,9 +213,9 @@ class QuantumMultinodeConsensusTest(BitcoinTestFramework):
             stack = list(probe_tx.wit.vtxinwit[0].scriptWitness.stack)
             if (
                 len(stack) == 3
-                and len(stack[0]) == HERMES_XMSS_SIGNATURE_SIZE
-                and len(stack[1]) == HERMES_SPHINCS_SIGNATURE_SIZE
-                and len(stack[2]) == HERMES_DUAL_PUBKEY_BUNDLE_SIZE
+                and len(stack[0]) == BYZE_XMSS_SIGNATURE_SIZE
+                and len(stack[1]) == BYZE_SPHINCS_SIGNATURE_SIZE
+                and len(stack[2]) == BYZE_DUAL_PUBKEY_BUNDLE_SIZE
             ):
                 return funded["hex"], utxo
         raise AssertionError("Could not construct a funded transaction that uses quantum witness signing")
@@ -247,9 +231,9 @@ class QuantumMultinodeConsensusTest(BitcoinTestFramework):
         tx = tx_from_hex(tx_hex)
         stack = tx.wit.vtxinwit[0].scriptWitness.stack
         assert_equal(len(stack), 3)
-        assert_equal(len(stack[0]), HERMES_XMSS_SIGNATURE_SIZE)
-        assert_equal(len(stack[1]), HERMES_SPHINCS_SIGNATURE_SIZE)
-        assert_equal(len(stack[2]), HERMES_DUAL_PUBKEY_BUNDLE_SIZE)
+        assert_equal(len(stack[0]), BYZE_XMSS_SIGNATURE_SIZE)
+        assert_equal(len(stack[1]), BYZE_SPHINCS_SIGNATURE_SIZE)
+        assert_equal(len(stack[2]), BYZE_DUAL_PUBKEY_BUNDLE_SIZE)
 
         decoded_ids = []
         for node in self.nodes:
@@ -423,9 +407,9 @@ class QuantumMultinodeConsensusTest(BitcoinTestFramework):
                 "invalid_xmss_block_sig",
                 replace_quantum_sig_tail(
                     tip_block_hex,
-                    xmss=bytes([0xAB]) * HERMES_XMSS_SIGNATURE_SIZE,
-                    sphincs=bytes([0xBB]) * HERMES_SPHINCS_SIGNATURE_SIZE,
-                    dual=bytes([0xCC]) * HERMES_DUAL_PUBKEY_BUNDLE_SIZE,
+                    xmss=bytes([0xAB]) * BYZE_XMSS_SIGNATURE_SIZE,
+                    sphincs=bytes([0xBB]) * BYZE_SPHINCS_SIGNATURE_SIZE,
+                    dual=bytes([0xCC]) * BYZE_DUAL_PUBKEY_BUNDLE_SIZE,
                 ),
                 "bad-quantum-sig",
             ),
@@ -433,9 +417,9 @@ class QuantumMultinodeConsensusTest(BitcoinTestFramework):
                 "invalid_sphincs_block_sig",
                 replace_quantum_sig_tail(
                     tip_block_hex,
-                    xmss=bytes([0xAA]) * HERMES_XMSS_SIGNATURE_SIZE,
-                    sphincs=bytes([0xBC]) * HERMES_SPHINCS_SIGNATURE_SIZE,
-                    dual=bytes([0xCC]) * HERMES_DUAL_PUBKEY_BUNDLE_SIZE,
+                    xmss=bytes([0xAA]) * BYZE_XMSS_SIGNATURE_SIZE,
+                    sphincs=bytes([0xBC]) * BYZE_SPHINCS_SIGNATURE_SIZE,
+                    dual=bytes([0xCC]) * BYZE_DUAL_PUBKEY_BUNDLE_SIZE,
                 ),
                 "bad-quantum-sig",
             ),
@@ -443,9 +427,9 @@ class QuantumMultinodeConsensusTest(BitcoinTestFramework):
                 "invalid_dual_bundle",
                 replace_quantum_sig_tail(
                     tip_block_hex,
-                    xmss=bytes([0xAA]) * HERMES_XMSS_SIGNATURE_SIZE,
-                    sphincs=bytes([0xBB]) * HERMES_SPHINCS_SIGNATURE_SIZE,
-                    dual=bytes([0xCD]) * HERMES_DUAL_PUBKEY_BUNDLE_SIZE,
+                    xmss=bytes([0xAA]) * BYZE_XMSS_SIGNATURE_SIZE,
+                    sphincs=bytes([0xBB]) * BYZE_SPHINCS_SIGNATURE_SIZE,
+                    dual=bytes([0xCD]) * BYZE_DUAL_PUBKEY_BUNDLE_SIZE,
                 ),
                 "bad-quantum-sig",
             ),
