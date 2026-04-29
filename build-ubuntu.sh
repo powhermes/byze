@@ -195,20 +195,13 @@ if [ $? -eq 0 ]; then
     
     echo ""
     print_info "You can now run:"
-    print_info "  ./$BUILD_DIR/bin/bitcoind    # Start the daemon"
-    print_info "  ./$BUILD_DIR/bin/bitcoin-qt  # Start the GUI wallet"
-    print_info "  ./$BUILD_DIR/bin/bitcoin-cli # Use the CLI"
+    print_info "  ./$BUILD_DIR/bin/byzed    # Start the daemon"
+    print_info "  ./$BUILD_DIR/bin/byze-qt  # Start the GUI wallet"
+    print_info "  ./$BUILD_DIR/bin/byze-cli # Use the CLI"
     echo ""
-    
-    # Optional: Run tests
-    read -p "Run tests? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        print_info "Running tests..."
-        cd "$BUILD_DIR"
-        ctest -j"$PARALLEL_JOBS" || print_warn "Some tests may have failed"
-        cd "$SCRIPT_DIR"
-    fi
+
+    print_info "To run tests (optional):"
+    print_info "  (cd $BUILD_DIR && ctest -j$PARALLEL_JOBS)"
 else
     print_error "Build failed!"
     exit 1

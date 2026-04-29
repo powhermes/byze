@@ -19,12 +19,9 @@
 namespace node {
 Warnings::Warnings()
 {
-    // Pre-release build warning
-    if (!CLIENT_VERSION_IS_RELEASE) {
-        m_warnings.insert(
-            {Warning::PRE_RELEASE_TEST_BUILD,
-             _("This is experimental software - use at your own risk")});
-    }
+    // Intentionally do not inject a "pre-release/experimental" warning banner.
+    // Byze distributions may be built from non-release metadata (e.g. git describe)
+    // but that should not force a user-facing GUI warning.
 }
 bool Warnings::Set(warning_type id, bilingual_str message)
 {

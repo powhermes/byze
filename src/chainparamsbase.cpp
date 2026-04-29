@@ -46,6 +46,8 @@ std::unique_ptr<CBaseChainParams> CreateBaseChainParams(const ChainType chain)
         return std::make_unique<CBaseChainParams>("testnet3", 18882);  // Byze testnet RPC port
     case ChainType::TESTNET4:
         return std::make_unique<CBaseChainParams>("testnet4", 48882);  // Byze testnet4 RPC port
+    case ChainType::STAGENET:
+        return std::make_unique<CBaseChainParams>("stagenet", 28882);  // Byze stagenet RPC port
     case ChainType::SIGNET:
         return std::make_unique<CBaseChainParams>("signet", 38882);  // Byze signet RPC port
     case ChainType::REGTEST:

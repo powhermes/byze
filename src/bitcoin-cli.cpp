@@ -431,6 +431,8 @@ private:
             return " testnet4";
         case ChainType::TESTNET:
             return " testnet";
+        case ChainType::STAGENET:
+            return " stagenet";
         case ChainType::SIGNET:
             return " signet";
         case ChainType::REGTEST:
