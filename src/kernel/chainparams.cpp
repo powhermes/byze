@@ -34,7 +34,7 @@ using namespace util::hex_literals;
 // difficulty adjustment algorithm is unchanged after this height. This
 // constant documents the intended soft-launch window; the consensus rule is
 // implemented in GetNextWorkRequired() in src/pow.cpp.
-static constexpr int SOFT_LAUNCH_HEIGHT = 12;
+static constexpr int SOFT_LAUNCH_HEIGHT = 10000;
 
 // Workaround MSVC bug triggering C7595 when calling consteval constructors in
 // initializer lists.
