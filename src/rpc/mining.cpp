@@ -48,6 +48,7 @@
 #include <util/time.h>
 #include <util/translation.h>
 #include <validation.h>
+#include <streams.h>
 #include <validationinterface.h>
 
 #include <cstdint>
@@ -1174,6 +1175,76 @@ protected:
     }
 };
 
+/** Attach quantum_signatures to a pool-built block (same policy as post-PoW signing in GenerateBlock). */
+static RPCHelpMan signpoolblock()
+{
+    return RPCHelpMan{
+        "signpoolblock",
+        "Accepts a hex-encoded CBlock from an external pool/miner, verifies RandomX proof-of-work on the header,\n"
+        "and when required by network policy attaches XMSS + SPHINCS+ signatures over CBlockHeader::GetHash().\n"
+        "Returns fully serialized block hex suitable for submitblock.\n",
+        {
+            {"hexdata", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "witness-serialized block hex (empty quantum tail is ok)"},
+        },
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR_HEX, "hex", "serialized block including quantum_signatures when required"},
+                {RPCResult::Type::STR_HEX, "hash", "header PoW hash (RandomX)"},
+                {RPCResult::Type::BOOL, "quantum_signed", "true if quantum fields were populated"},
+            }},
+        RPCExamples{
+            HelpExampleCli("signpoolblock", "\"<hex>\"")
+            + HelpExampleRpc("signpoolblock", "\"<hex>\"")},
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            CBlock block;
+            if (!DecodeHexBlk(block, request.params[0].get_str())) {
+                throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block decode failed");
+            }
+            // Replace any placeholder / partial tail so signing uses a clean slate.
+            block.quantum_signatures.SetNull();
+
+            const Consensus::Params& consensus{Params().GetConsensus()};
+            if (!CheckProofOfWork(block.GetHash(), block.nBits, consensus)) {
+                throw JSONRPCError(RPC_VERIFY_ERROR, "Block proof-of-work is invalid");
+            }
+
+            const bool isMainnet{!Params().IsTestChain()};
+            const bool enforce{gArgs.GetBoolArg("-enforcequantumblocksigs", false)};
+            const bool require_quantum{isMainnet || enforce};
+            const bool isGenesis{(block.GetHash() == consensus.hashGenesisBlock)};
+            bool quantum_signed{false};
+
+            if (require_quantum && !isGenesis) {
+                crypto::quantum_safe_manager qmgr;
+                if (!qmgr.ensure_modern_keys(BYZE_DEFAULT_XMSS_TREE_HEIGHT, BYZE_DEFAULT_SPHINCS_LEVEL)) {
+                    throw JSONRPCError(RPC_MISC_ERROR, "Failed to initialize quantum key material for signing");
+                }
+                const uint256 block_hash{block.GetHash()};
+                std::vector<uint8_t> xmss_sig = qmgr.sign(block_hash, crypto::quantum_algorithm::XMSS);
+                std::vector<uint8_t> sphincs_sig = qmgr.sign(block_hash, crypto::quantum_algorithm::SPHINCS_PLUS);
+                if (xmss_sig.size() != BYZE_XMSS_SIGNATURE_SIZE || sphincs_sig.size() != BYZE_SPHINCS_SIGNATURE_SIZE) {
+                    throw JSONRPCError(RPC_MISC_ERROR, strprintf("Quantum signature size mismatch (xmss=%u sphincs=%u)",
+                        static_cast<unsigned>(xmss_sig.size()),
+                        static_cast<unsigned>(sphincs_sig.size())));
+                }
+                block.quantum_signatures.xmss_signature = std::move(xmss_sig);
+                block.quantum_signatures.sphincs_signature = std::move(sphincs_sig);
+                block.quantum_signatures.dual_public_key = qmgr.get_dual_public_key_bundle();
+                quantum_signed = true;
+            }
+
+            DataStream block_ser;
+            block_ser << TX_WITH_WITNESS(block);
+            UniValue ret(UniValue::VOBJ);
+            ret.pushKV("hex", HexStr(block_ser));
+            ret.pushKV("hash", block.GetHash().GetHex());
+            ret.pushKV("quantum_signed", quantum_signed);
+            return ret;
+        },
+    };
+}
+
 static RPCHelpMan submitblock()
 {
     // We allow 2 arguments for compliance with BIP22. Argument 2 is ignored.
@@ -1366,6 +1437,7 @@ void RegisterMiningRPCCommands(CRPCTable& t)
         {"mining", &prioritisetransaction},
         {"mining", &getprioritisedtransactions},
         {"mining", &getblocktemplate},
+        {"mining", &signpoolblock},
         {"mining", &submitblock},
         {"mining", &submitheader},
         {"mining", &startmining},
