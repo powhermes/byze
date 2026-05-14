@@ -40,6 +40,7 @@
 #include <algorithm>
 #include <cstring>
 #include <fstream> // Required for file I/O
+#include <sstream>
 #include <cstdio>
 
 // Helper function to hash data using SHA3-256 (Keccak)
@@ -1784,6 +1785,90 @@ namespace crypto
     }
     catch (...)
     {
+      return false;
+    }
+  }
+
+  bool quantum_safe_manager::serialize_dual_keys(std::vector<uint8_t>& out) const
+  {
+    if (!has_dual_keys()) return false;
+    try {
+      std::ostringstream oss(std::ios::binary);
+      uint32_t magic = 0x5146534B;
+      uint8_t version = 2;
+      uint8_t algo_byte = static_cast<uint8_t>(quantum_algorithm::DUAL);
+      oss.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
+      oss.write(reinterpret_cast<const char*>(&version), sizeof(version));
+      oss.write(reinterpret_cast<const char*>(&algo_byte), sizeof(algo_byte));
+
+      std::vector<uint8_t> xmss_priv_data = m_xmss_private->save();
+      std::vector<uint8_t> xmss_pub_data = m_xmss_public->save();
+      uint32_t xmss_priv_size = static_cast<uint32_t>(xmss_priv_data.size());
+      uint32_t xmss_pub_size = static_cast<uint32_t>(xmss_pub_data.size());
+      oss.write(reinterpret_cast<const char*>(&xmss_priv_size), sizeof(xmss_priv_size));
+      oss.write(reinterpret_cast<const char*>(xmss_priv_data.data()), xmss_priv_size);
+      oss.write(reinterpret_cast<const char*>(&xmss_pub_size), sizeof(xmss_pub_size));
+      oss.write(reinterpret_cast<const char*>(xmss_pub_data.data()), xmss_pub_size);
+
+      std::vector<uint8_t> sphincs_priv_data = m_sphincs_private->save();
+      std::vector<uint8_t> sphincs_pub_data = m_sphincs_public->save();
+      uint32_t sphincs_priv_size = static_cast<uint32_t>(sphincs_priv_data.size());
+      uint32_t sphincs_pub_size = static_cast<uint32_t>(sphincs_pub_data.size());
+      oss.write(reinterpret_cast<const char*>(&sphincs_priv_size), sizeof(sphincs_priv_size));
+      oss.write(reinterpret_cast<const char*>(sphincs_priv_data.data()), sphincs_priv_size);
+      oss.write(reinterpret_cast<const char*>(&sphincs_pub_size), sizeof(sphincs_pub_size));
+      oss.write(reinterpret_cast<const char*>(sphincs_pub_data.data()), sphincs_pub_size);
+
+      const std::string s = oss.str();
+      out.assign(s.begin(), s.end());
+      return true;
+    } catch (...) {
+      return false;
+    }
+  }
+
+  bool quantum_safe_manager::deserialize_dual_keys(const std::vector<uint8_t>& in)
+  {
+    try {
+      std::istringstream iss(std::string(reinterpret_cast<const char*>(in.data()), in.size()), std::ios::binary);
+      uint32_t magic = 0;
+      uint8_t version = 0;
+      uint8_t algo_byte = 0;
+      iss.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+      iss.read(reinterpret_cast<char*>(&version), sizeof(version));
+      iss.read(reinterpret_cast<char*>(&algo_byte), sizeof(algo_byte));
+      if (magic != 0x5146534B || version < 2) return false;
+      quantum_algorithm algo = static_cast<quantum_algorithm>(algo_byte);
+      if (algo != quantum_algorithm::DUAL) return false;
+
+      m_xmss_private = std::make_unique<xmss_private_key>();
+      m_xmss_public = std::make_unique<xmss_public_key>();
+      uint32_t xmss_priv_size = 0;
+      iss.read(reinterpret_cast<char*>(&xmss_priv_size), sizeof(xmss_priv_size));
+      std::vector<uint8_t> xmss_priv_data(xmss_priv_size);
+      iss.read(reinterpret_cast<char*>(xmss_priv_data.data()), xmss_priv_size);
+      if (!m_xmss_private->load(xmss_priv_data)) return false;
+      uint32_t xmss_pub_size = 0;
+      iss.read(reinterpret_cast<char*>(&xmss_pub_size), sizeof(xmss_pub_size));
+      std::vector<uint8_t> xmss_pub_data(xmss_pub_size);
+      iss.read(reinterpret_cast<char*>(xmss_pub_data.data()), xmss_pub_size);
+      if (!m_xmss_public->load(xmss_pub_data)) return false;
+
+      m_sphincs_private = std::make_unique<sphincs_private_key>();
+      m_sphincs_public = std::make_unique<sphincs_public_key>();
+      uint32_t sphincs_priv_size = 0;
+      iss.read(reinterpret_cast<char*>(&sphincs_priv_size), sizeof(sphincs_priv_size));
+      std::vector<uint8_t> sphincs_priv_data(sphincs_priv_size);
+      iss.read(reinterpret_cast<char*>(sphincs_priv_data.data()), sphincs_priv_size);
+      if (!m_sphincs_private->load(sphincs_priv_data)) return false;
+      uint32_t sphincs_pub_size = 0;
+      iss.read(reinterpret_cast<char*>(&sphincs_pub_size), sizeof(sphincs_pub_size));
+      std::vector<uint8_t> sphincs_pub_data(sphincs_pub_size);
+      iss.read(reinterpret_cast<char*>(sphincs_pub_data.data()), sphincs_pub_size);
+      if (!m_sphincs_public->load(sphincs_pub_data)) return false;
+      m_current_algo = quantum_algorithm::DUAL;
+      return true;
+    } catch (...) {
       return false;
     }
   }

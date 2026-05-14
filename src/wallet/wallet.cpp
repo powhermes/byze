@@ -4,6 +4,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <wallet/wallet.h>
+#include <wallet/walletquantum.h>
 
 #include <bitcoin-build-config.h> // IWYU pragma: keep
 #include <addresstype.h>
@@ -94,28 +95,6 @@ using util::ReplaceAll;
 using util::ToString;
 
 namespace wallet {
-
-namespace {
-bool IsQuantumWalletScript(const CScript& script)
-{
-    int witnessversion{-1};
-    std::vector<unsigned char> witnessprogram;
-    if (!script.IsWitnessProgram(witnessversion, witnessprogram) || witnessversion != 1 || witnessprogram.size() != 32) {
-        return false;
-    }
-
-    crypto::quantum_safe_manager manager;
-    const fs::path key_path = gArgs.GetDataDirNet() / "quantum_wallet.keys";
-    if (!manager.load_dual_keys(fs::PathToString(key_path))) return false;
-    if (!manager.ensure_modern_keys()) return false;
-
-    const std::vector<uint8_t> bundle = manager.get_dual_public_key_bundle();
-    if (bundle.empty()) return false;
-    unsigned char bundle_hash[32];
-    CSHA256().Write(bundle.data(), bundle.size()).Finalize(bundle_hash);
-    return std::memcmp(bundle_hash, witnessprogram.data(), witnessprogram.size()) == 0;
-}
-} // namespace
 
 bool AddWalletSetting(interfaces::Chain& chain, const std::string& wallet_name)
 {
@@ -828,6 +807,13 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
                 // die and let the user reload the unencrypted wallet.
                 assert(false);
             }
+        }
+
+        if (!EncryptQuantumKeysForWallet(plain_master_key, encrypted_batch)) {
+            encrypted_batch->TxnAbort();
+            delete encrypted_batch;
+            encrypted_batch = nullptr;
+            assert(false);
         }
 
         if (!encrypted_batch->TxnCommit()) {
@@ -1632,7 +1618,7 @@ bool CWallet::IsMine(const CScript& script) const
         return res;
     }
 
-    return IsQuantumWalletScript(script);
+    return IsQuantumMine(script);
 }
 
 bool CWallet::IsMine(const CTransaction& tx) const
@@ -2149,7 +2135,7 @@ bool CWallet::SignTransaction(CMutableTransaction& tx, const std::map<COutPoint,
     for (size_t i = 0; i < tx.vin.size(); ++i) {
         const auto it = coins.find(tx.vin[i].prevout);
         if (it == coins.end()) continue;
-        if (!IsQuantumWalletScript(it->second.out.scriptPubKey)) {
+        if (!IsQuantumMine(it->second.out.scriptPubKey)) {
             input_errors[static_cast<int>(i)] = _("Byze wallet refuses to sign non-quantum inputs");
             return false;
         }
@@ -2166,8 +2152,8 @@ bool CWallet::SignTransaction(CMutableTransaction& tx, const std::map<COutPoint,
 
     // Byze: quantum spending is implemented as witness v1 programs and is not backed by
     // ScriptPubKeyMans. As a fallback, try signing with the quantum-capable provider.
-    FlatSigningProvider quantum_provider;
-    return ::SignTransaction(tx, &quantum_provider, coins, sighash, input_errors);
+    WalletQuantumSigningProvider wallet_quantum_provider(*this);
+    return ::SignTransaction(tx, &wallet_quantum_provider, coins, sighash, input_errors);
 }
 
 std::optional<PSBTError> CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& complete, std::optional<int> sighash_type, bool sign, bool bip32derivs, size_t * n_signed, bool finalize) const
@@ -2204,7 +2190,7 @@ std::optional<PSBTError> CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bo
             } else if (input.non_witness_utxo && txin.prevout.n < input.non_witness_utxo->vout.size()) {
                 prev_txout = &input.non_witness_utxo->vout.at(txin.prevout.n);
             }
-            if (prev_txout && !IsQuantumWalletScript(prev_txout->scriptPubKey)) {
+            if (prev_txout && !IsQuantumMine(prev_txout->scriptPubKey)) {
                 return PSBTError::UNSUPPORTED;
             }
         }
@@ -3336,6 +3322,7 @@ bool CWallet::Lock()
             memory_cleanse(vMasterKey.data(), vMasterKey.size() * sizeof(decltype(vMasterKey)::value_type));
             vMasterKey.clear();
         }
+        WipeQuantumSecretsFromMemory();
     }
 
     NotifyStatusChanged(this);
@@ -3352,6 +3339,24 @@ bool CWallet::Unlock(const CKeyingMaterial& vMasterKeyIn)
             }
         }
         vMasterKey = vMasterKeyIn;
+        if (!MigrateLegacyQuantumKeysFromDiskIfNeeded()) {
+            return false;
+        }
+        {
+            WalletBatch quantum_batch(GetDatabase());
+            std::vector<unsigned char> quantum_raw;
+            if (!quantum_batch.ReadQuantumState(quantum_raw) || quantum_raw.empty()) {
+                m_quantum_program_bytes.reset();
+                m_quantum_secret_storage.clear();
+                m_quantum_secret_is_encrypted = false;
+                m_quantum_manager.reset();
+            } else if (ApplyQuantumStateFromPackedBlob(quantum_raw) != DBErrors::LOAD_OK) {
+                return false;
+            }
+        }
+        if (!TryLoadQuantumManagerAfterUnlock()) {
+            return false;
+        }
     }
     NotifyStatusChanged(this);
     return true;
@@ -3440,10 +3445,10 @@ std::unique_ptr<SigningProvider> CWallet::GetSolvingProvider(const CScript& scri
         return it->second.at(0)->GetSolvingProvider(script);
     }
 
-    // Byze: quantum wallet outputs are identified dynamically (see IsQuantumWalletScript)
+    // Byze: quantum wallet outputs use wallet DB-backed program bytes.
     // and are not managed by ScriptPubKeyMans. Return a provider so funding/signing code paths
     // can treat these outputs as solvable.
-    if (IsQuantumWalletScript(script)) {
+    if (IsQuantumMine(script)) {
         return std::make_unique<FlatSigningProvider>();
     }
 

@@ -672,7 +672,7 @@ RPCHelpMan listunspent()
                 entry.pushKV("ancestorfees", uint64_t(ancestor_fees));
             }
         }
-        entry.pushKV("spendable", true); // Any coins we list are always spendable
+        entry.pushKV("spendable", out.solvable && !(pwallet->IsCrypted() && pwallet->IsLocked()));
         entry.pushKV("solvable", out.solvable);
         if (out.solvable) {
             std::unique_ptr<SigningProvider> provider = pwallet->GetSolvingProvider(scriptPubKey);

@@ -238,6 +238,10 @@ namespace crypto
     // Key management for dual enforcement
     bool save_dual_keys(const std::string& filename) const;
     bool load_dual_keys(const std::string& filename);
+    /** Serialize dual XMSS/SPHINCS+ keys (same binary layout as save_dual_keys file body). */
+    bool serialize_dual_keys(std::vector<uint8_t>& out) const;
+    /** Load from buffer produced by serialize_dual_keys or a legacy quantum_wallet.keys file. */
+    bool deserialize_dual_keys(const std::vector<uint8_t>& in);
     std::vector<uint8_t> get_dual_public_key() const;
     std::vector<uint8_t> get_dual_public_key_bundle() const;
     std::string get_dual_algorithm_info() const;

@@ -60,6 +60,8 @@ const std::string WALLETDESCRIPTORCKEY{"walletdescriptorckey"};
 const std::string WALLETDESCRIPTORKEY{"walletdescriptorkey"};
 const std::string WATCHMETA{"watchmeta"};
 const std::string WATCHS{"watchs"};
+const std::string QUANTUM_STATE{"quantumstate"};
+const std::string QUANTUM_PENDING{"quantumpend"};
 const std::unordered_set<std::string> LEGACY_TYPES{CRYPTED_KEY, CSCRIPT, DEFAULTKEY, HDCHAIN, KEYMETA, KEY, OLD_KEY, POOL, WATCHMETA, WATCHS};
 } // namespace DBKeys
 
@@ -1155,6 +1157,9 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
         // Load decryption keys
         result = std::max(LoadDecryptionKeys(pwallet, *m_batch), result);
 
+        // Byze: per-wallet quantum signing material (after mkey records exist for encrypted wallets)
+        result = std::max(pwallet->LoadQuantumRecordsFromDatabase(*m_batch), result);
+
         // Load tx records
         result = std::max(LoadTxRecords(pwallet, *m_batch, any_unordered), result);
     } catch (std::runtime_error& e) {
@@ -1261,6 +1266,36 @@ bool WalletBatch::EraseAddressData(const CTxDestination& dest)
 bool WalletBatch::WriteWalletFlags(const uint64_t flags)
 {
     return WriteIC(DBKeys::FLAGS, flags);
+}
+
+bool WalletBatch::WriteQuantumState(const std::vector<unsigned char>& data)
+{
+    return WriteIC(DBKeys::QUANTUM_STATE, data);
+}
+
+bool WalletBatch::ReadQuantumState(std::vector<unsigned char>& data)
+{
+    return m_batch->Read(DBKeys::QUANTUM_STATE, data);
+}
+
+bool WalletBatch::EraseQuantumState()
+{
+    return EraseIC(DBKeys::QUANTUM_STATE);
+}
+
+bool WalletBatch::WriteQuantumPending(uint32_t index)
+{
+    return WriteIC(DBKeys::QUANTUM_PENDING, index);
+}
+
+bool WalletBatch::ReadQuantumPending(uint32_t& index)
+{
+    return m_batch->Read(DBKeys::QUANTUM_PENDING, index);
+}
+
+bool WalletBatch::EraseQuantumPending()
+{
+    return EraseIC(DBKeys::QUANTUM_PENDING);
 }
 
 bool WalletBatch::EraseRecords(const std::unordered_set<std::string>& types)

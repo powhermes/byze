@@ -520,6 +520,10 @@ CoinsResult AvailableCoins(const CWallet& wallet,
         // it is safe to assume that this input is solvable if input_bytes is greater than -1.
         bool solvable = input_bytes > -1;
 
+        if (wallet.IsQuantumMine(output.scriptPubKey) && !wallet.QuantumCanSign()) {
+            solvable = false;
+        }
+
         // Obtain script type
         std::vector<std::vector<uint8_t>> script_solutions;
         TxoutType type = Solver(output.scriptPubKey, script_solutions);

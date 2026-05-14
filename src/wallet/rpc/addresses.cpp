@@ -4,16 +4,13 @@
 
 #include <bitcoin-build-config.h> // IWYU pragma: keep
 
-#include <common/args.h>
 #include <core_io.h>
-#include <crypto/quantum_safe.h>
-#include <crypto/sha256.h>
 #include <key_io.h>
+#include <rpc/protocol.h>
 #include <rpc/util.h>
 #include <script/script.h>
 #include <script/solver.h>
 #include <util/bip32.h>
-#include <util/fs.h>
 #include <util/translation.h>
 #include <wallet/receive.h>
 #include <wallet/rpc/util.h>
@@ -22,27 +19,6 @@
 #include <univalue.h>
 
 namespace wallet {
-namespace {
-std::optional<CTxDestination> GetQuantumDestination()
-{
-    crypto::quantum_safe_manager manager;
-    const fs::path key_path = gArgs.GetDataDirNet() / "quantum_wallet.keys";
-    if (!manager.load_dual_keys(fs::PathToString(key_path))) {
-        if (!manager.generate_dual_keys()) return std::nullopt;
-    } else if (!manager.ensure_modern_keys()) {
-        return std::nullopt;
-    }
-    if (!manager.save_dual_keys(fs::PathToString(key_path))) return std::nullopt;
-
-    const std::vector<uint8_t> bundle = manager.get_dual_public_key_bundle();
-    if (bundle.empty()) return std::nullopt;
-    unsigned char bundle_hash[32];
-    CSHA256().Write(bundle.data(), bundle.size()).Finalize(bundle_hash);
-    XOnlyPubKey xonly;
-    std::copy(bundle_hash, bundle_hash + 32, xonly.begin());
-    return WitnessV1Taproot{xonly};
-}
-} // namespace
 
 static void EnforceQuantumOutputType(OutputType output_type)
 {
@@ -93,9 +69,16 @@ RPCHelpMan getnewaddress()
     }
     EnforceQuantumOutputType(output_type);
 
-    auto op_dest = GetQuantumDestination();
+    if (pwallet->IsCrypted() && pwallet->IsLocked()) {
+        throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED, "Error: Please enter the wallet passphrase with walletpassphrase first.");
+    }
+
+    if (!pwallet->EnsureQuantumKeysForReceive()) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Could not persist quantum signing keys to the wallet database; refusing to create an address that depends on external key files.");
+    }
+    const auto op_dest = pwallet->GetQuantumReceiveDestination();
     if (!op_dest) {
-        throw JSONRPCError(RPC_WALLET_KEYPOOL_RAN_OUT, "Failed to create quantum-safe address");
+        throw JSONRPCError(RPC_WALLET_ERROR, "Could not derive quantum-safe receive address from wallet database state.");
     }
     pwallet->SetAddressBook(*op_dest, label, AddressPurpose::RECEIVE);
 
@@ -141,9 +124,16 @@ RPCHelpMan getrawchangeaddress()
     }
     EnforceQuantumOutputType(output_type);
 
-    auto op_dest = GetQuantumDestination();
+    if (pwallet->IsCrypted() && pwallet->IsLocked()) {
+        throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED, "Error: Please enter the wallet passphrase with walletpassphrase first.");
+    }
+
+    if (!pwallet->EnsureQuantumKeysForReceive()) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Could not persist quantum signing keys to the wallet database; refusing to create a change address that depends on external key files.");
+    }
+    const auto op_dest = pwallet->GetQuantumReceiveDestination();
     if (!op_dest) {
-        throw JSONRPCError(RPC_WALLET_KEYPOOL_RAN_OUT, "Failed to create quantum-safe change address");
+        throw JSONRPCError(RPC_WALLET_ERROR, "Could not derive quantum-safe change address from wallet database state.");
     }
     pwallet->SetAddressBook(*op_dest, "", AddressPurpose::RECEIVE);
     return EncodeDestination(*op_dest);

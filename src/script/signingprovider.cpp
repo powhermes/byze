@@ -4,10 +4,6 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <script/keyorigin.h>
-#include <common/args.h>
-#include <crypto/quantum_safe.h>
-#include <crypto/quantum_safe_config.h>
-#include <crypto/sha256.h>
 #include <script/interpreter.h>
 #include <script/signingprovider.h>
 
@@ -15,11 +11,6 @@
 #include <util/fs.h>
 
 #include <cstring>
-#include <chrono>
-#include <fcntl.h>
-#include <fstream>
-#include <thread>
-#include <unistd.h>
 
 const SigningProvider& DUMMY_SIGNING_PROVIDER = SigningProvider();
 
@@ -123,135 +114,11 @@ bool FlatSigningProvider::GetTaprootBuilder(const XOnlyPubKey& output_key, Tapro
     return LookupHelper(tr_trees, output_key, builder);
 }
 
-namespace {
-class ScopedQuantumKeyLock
-{
-public:
-    explicit ScopedQuantumKeyLock(const fs::path& lock_path) : m_lock_path(lock_path)
-    {
-        constexpr int kMaxAttempts = 100;
-        for (int i = 0; i < kMaxAttempts; ++i) {
-            m_fd = open(fs::PathToString(m_lock_path).c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
-            if (m_fd >= 0) {
-                m_locked = true;
-                return;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-    }
-
-    ~ScopedQuantumKeyLock()
-    {
-        if (m_fd >= 0) close(m_fd);
-        if (m_locked) fs::remove(m_lock_path);
-    }
-
-    bool IsLocked() const { return m_locked; }
-
-private:
-    fs::path m_lock_path;
-    int m_fd{-1};
-    bool m_locked{false};
-};
-
-static bool RecoverPendingXmssReservation(const fs::path& pending_path, crypto::quantum_safe_manager& manager, const fs::path& key_path)
-{
-    if (!fs::exists(pending_path)) return true;
-
-    std::ifstream in(pending_path.std_path(), std::ios::binary);
-    if (!in.is_open()) return false;
-    uint32_t pending_index{0};
-    in.read(reinterpret_cast<char*>(&pending_index), sizeof(pending_index));
-    if (!in.good() && !in.eof()) return false;
-
-    const auto current = manager.get_xmss_index();
-    if (!current.has_value()) return false;
-    if (pending_index >= *current) {
-        if (!manager.set_xmss_index(pending_index + 1)) return false;
-        if (!manager.save_dual_keys(fs::PathToString(key_path))) return false;
-    }
-    fs::remove(pending_path);
-    return true;
-}
-
-static bool WritePendingXmssReservation(const fs::path& pending_path, uint32_t index)
-{
-    std::ofstream out(pending_path.std_path(), std::ios::binary | std::ios::trunc);
-    if (!out.is_open()) return false;
-    out.write(reinterpret_cast<const char*>(&index), sizeof(index));
-    out.flush();
-    out.close();
-    return true;
-}
-
-bool LoadOrCreateQuantumManager(crypto::quantum_safe_manager& manager)
-{
-    const fs::path key_path = gArgs.GetDataDirNet() / "quantum_wallet.keys";
-    if (manager.load_dual_keys(fs::PathToString(key_path))) {
-        return manager.ensure_modern_keys();
-    }
-    if (!manager.generate_dual_keys()) return false;
-    return manager.save_dual_keys(fs::PathToString(key_path));
-}
-} // namespace
-
 bool FlatSigningProvider::SignQuantumSighash(const uint256& sighash, std::span<const unsigned char> output_program, std::vector<unsigned char>& xmss_sig, std::vector<unsigned char>& sphincs_sig, std::vector<unsigned char>& dual_pubkey_bundle) const
 {
-    if (output_program.size() != WITNESS_V1_TAPROOT_SIZE) return false;
-    const fs::path key_path = gArgs.GetDataDirNet() / "quantum_wallet.keys";
-    const fs::path lock_path = key_path + ".lock";
-    const fs::path pending_path = key_path + ".pending";
-    ScopedQuantumKeyLock lock(lock_path);
-    if (!lock.IsLocked()) return false;
-
-    crypto::quantum_safe_manager manager;
-    if (!LoadOrCreateQuantumManager(manager)) return false;
-    if (!RecoverPendingXmssReservation(pending_path, manager, key_path)) return false;
-
-    std::vector<unsigned char> bundle = manager.get_dual_public_key_bundle();
-    if (bundle.empty()) return false;
-
-    unsigned char bundle_hash[WITNESS_V1_TAPROOT_SIZE];
-    CSHA256().Write(bundle.data(), bundle.size()).Finalize(bundle_hash);
-    if (std::memcmp(bundle_hash, output_program.data(), output_program.size()) != 0) {
-        return false;
-    }
-
-    const auto reserved_index = manager.get_xmss_index();
-    if (!reserved_index.has_value()) return false;
-    LogPrintf("[xmss-state] stage=reserve key_path=%s reserved_index=%u\n", fs::PathToString(key_path), *reserved_index);
-    if (!WritePendingXmssReservation(pending_path, *reserved_index)) return false;
-
-    xmss_sig = manager.sign(sighash, crypto::quantum_algorithm::XMSS);
-    sphincs_sig = manager.sign(sighash, crypto::quantum_algorithm::SPHINCS_PLUS);
-    if (xmss_sig.size() != BYZE_XMSS_SIGNATURE_SIZE || sphincs_sig.size() != BYZE_SPHINCS_SIGNATURE_SIZE) {
-        return false;
-    }
-
-    // XMSS is stateful. Enforce that signing consumes at least one index, even if the
-    // underlying XMSS implementation is swapped or refactored.
-    const auto post_sign_index = manager.get_xmss_index();
-    if (!post_sign_index.has_value()) return false;
-    LogPrintf("[xmss-state] stage=post-sign-before-guard key_path=%s reserved_index=%u post_sign_index=%u\n",
-              fs::PathToString(key_path), *reserved_index, *post_sign_index);
-    if (*post_sign_index < *reserved_index + 1) {
-        if (!manager.set_xmss_index(*reserved_index + 1)) return false;
-        const auto guarded_index = manager.get_xmss_index();
-        if (!guarded_index.has_value()) return false;
-        LogPrintf("[xmss-state] stage=post-sign-after-guard key_path=%s guarded_index=%u\n",
-                  fs::PathToString(key_path), *guarded_index);
-    }
-
-    const auto pre_save_index = manager.get_xmss_index();
-    if (!pre_save_index.has_value()) return false;
-    LogPrintf("[xmss-state] stage=pre-save key_path=%s index_to_save=%u\n",
-              fs::PathToString(key_path), *pre_save_index);
-    if (!manager.save_dual_keys(fs::PathToString(key_path))) return false;
-    LogPrintf("[xmss-state] stage=save-success key_path=%s\n", fs::PathToString(key_path));
-    fs::remove(pending_path);
-
-    dual_pubkey_bundle = std::move(bundle);
-    return true;
+    // Byze: quantum transaction signing is wallet-scoped (see CWallet / WalletQuantumSigningProvider).
+    // The legacy datadir quantum_wallet.keys path is not used for spends.
+    return false;
 }
 
 std::vector<CPubKey> FlatSigningProvider::GetMuSig2ParticipantPubkeys(const CPubKey& pubkey) const

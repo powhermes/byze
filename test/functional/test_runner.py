@@ -137,6 +137,7 @@ BASE_SCRIPTS = [
     'feature_assumevalid.py',
     'wallet_taproot.py',
     'wallet_quantum_flow.py',
+    'wallet_quantum_walletdat_recovery.py',
     'wallet_quantum_invariants.py',
     'feature_quantum_p2p_compact_block_sync.py',
     'feature_quantum_mempool_relay.py',

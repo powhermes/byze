@@ -8,6 +8,7 @@
 
 #include <addresstype.h>
 #include <consensus/amount.h>
+#include <crypto/quantum_safe.h>
 #include <interfaces/chain.h>
 #include <interfaces/handler.h>
 #include <kernel/cs_main.h>
@@ -46,6 +47,7 @@
 #include <memory>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -68,6 +70,7 @@ class Wallet;
 }
 namespace wallet {
 class CWallet;
+class DatabaseBatch;
 class WalletBatch;
 enum class DBErrors : int;
 } // namespace wallet
@@ -315,6 +318,9 @@ private:
 
     bool Unlock(const CKeyingMaterial& vMasterKeyIn);
 
+    /** Byze: unpack QUANTUM_STATE blob into members (does not read legacy datadir files). */
+    DBErrors ApplyQuantumStateFromPackedBlob(const std::vector<unsigned char>& raw) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+
     std::atomic<bool> fAbortRescan{false};
     std::atomic<bool> fScanningWallet{false}; // controlled by WalletRescanReserver
     std::atomic<bool> m_scanning_with_passphrase{false};
@@ -435,6 +441,13 @@ private:
 
     //! Cache of descriptor ScriptPubKeys used for IsMine. Maps ScriptPubKey to set of spkms
     std::unordered_map<CScript, std::vector<ScriptPubKeyMan*>, SaltedSipHasher> m_cached_spks;
+
+    /** Byze: single quantum receive family per wallet — P2TR witness program (32-byte xonly output key). */
+    std::optional<std::array<uint8_t, 32>> m_quantum_program_bytes GUARDED_BY(cs_wallet);
+    /** Serialized dual XMSS/SPHINCS+ state (plaintext or AES-encrypted with wallet master key). */
+    std::vector<uint8_t> m_quantum_secret_storage GUARDED_BY(cs_wallet);
+    bool m_quantum_secret_is_encrypted GUARDED_BY(cs_wallet){false};
+    std::unique_ptr<crypto::quantum_safe_manager> m_quantum_manager GUARDED_BY(cs_wallet);
 
     //! Set of both spent and unspent transaction outputs owned by this wallet
     std::unordered_map<COutPoint, WalletTXO, SaltedOutpointHasher> m_txos GUARDED_BY(cs_wallet);
@@ -663,6 +676,33 @@ public:
     bool SignTransaction(CMutableTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Sign the tx given the input coins and sighash. */
     bool SignTransaction(CMutableTransaction& tx, const std::map<COutPoint, Coin>& coins, int sighash, std::map<int, bilingual_str>& input_errors) const;
+
+    /** Byze: load quantum key records from the wallet database (and optional legacy datadir migration). */
+    DBErrors LoadQuantumRecordsFromDatabase(DatabaseBatch& batch) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /**
+     * Byze: one-time import of legacy datadir `quantum_wallet.keys` into this wallet DB.
+     * Only the primary/default-style wallet names may consume the global legacy file
+     * (empty name or "default_wallet"); other wallets log and skip for multi-wallet safety.
+     * Requires vMasterKey when the wallet is encrypted. Returns false only on DB write failure.
+     */
+    bool MigrateLegacyQuantumKeysFromDiskIfNeeded() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: ensure dual quantum keys exist; persist to DB. Caller must hold cs_wallet. */
+    bool EnsureQuantumKeysForReceive() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: true if script is this wallet's quantum P2TR output. */
+    bool IsQuantumMine(const CScript& script) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: quantum signing material is loaded in memory (wallet unlocked or not encrypted). */
+    bool QuantumCanSign() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: sign taproot quantum sighash using wallet DB-backed keys. */
+    bool SignQuantumTransactionSighash(const uint256& sighash, std::span<const unsigned char> output_program, std::vector<unsigned char>& xmss_sig, std::vector<unsigned char>& sphincs_sig, std::vector<unsigned char>& dual_pubkey_bundle) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: encrypt quantum blob during wallet encryption. */
+    bool EncryptQuantumKeysForWallet(const CKeyingMaterial& master_key, WalletBatch* batch) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: clear decrypted quantum material from memory (wallet lock). */
+    void WipeQuantumSecretsFromMemory() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: decrypt and load quantum manager after successful wallet unlock. */
+    bool TryLoadQuantumManagerAfterUnlock() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: taproot destination for this wallet's quantum receive program (requires existing keys). */
+    std::optional<CTxDestination> GetQuantumReceiveDestination() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+
     SigningResult SignMessage(const std::string& message, const PKHash& pkhash, std::string& str_sig) const;
 
     /**

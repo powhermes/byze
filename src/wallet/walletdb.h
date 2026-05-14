@@ -85,6 +85,10 @@ extern const std::string WALLETDESCRIPTORCKEY;
 extern const std::string WALLETDESCRIPTORKEY;
 extern const std::string WATCHMETA;
 extern const std::string WATCHS;
+/** Byze: serialized quantum dual-key state (XMSS+SPHINCS+) stored in the wallet DB. */
+extern const std::string QUANTUM_STATE;
+/** Byze: optional XMSS index reservation during sign (uint32_t). */
+extern const std::string QUANTUM_PENDING;
 
 // Keys in this set pertain only to the legacy wallet (LegacyScriptPubKeyMan) and are removed during migration from legacy to descriptors.
 extern const std::unordered_set<std::string> LEGACY_TYPES;
@@ -269,6 +273,13 @@ public:
     bool EraseRecords(const std::unordered_set<std::string>& types);
 
     bool WriteWalletFlags(const uint64_t flags);
+    //! Byze quantum wallet: opaque serialized record (plaintext or wallet-encrypted blob + metadata).
+    bool WriteQuantumState(const std::vector<unsigned char>& data);
+    bool ReadQuantumState(std::vector<unsigned char>& data);
+    bool EraseQuantumState();
+    bool WriteQuantumPending(uint32_t index);
+    bool ReadQuantumPending(uint32_t& index);
+    bool EraseQuantumPending();
     //! Begin a new transaction
     bool TxnBegin();
     //! Commit current transaction

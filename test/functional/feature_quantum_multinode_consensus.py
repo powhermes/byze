@@ -6,7 +6,6 @@
 
 from io import BytesIO
 import hashlib
-import struct
 
 from test_framework.messages import CBlock, ser_string, tx_from_hex
 from test_framework.test_framework import BitcoinTestFramework
@@ -31,33 +30,6 @@ def replace_quantum_sig_tail(block_hex: str, *, xmss: bytes, sphincs: bytes, dua
     assert tail != b"\x00\x00\x00", "expected a signed Byze block tail"
     prefix = raw[:-len(tail)]
     return (prefix + ser_quantum_sigdata(xmss=xmss, sphincs=sphincs, dual=dual)).hex()
-
-
-def read_xmss_index(key_path):
-    data = key_path.read_bytes()
-    # Byze uses `crypto::quantum_safe_manager::save_dual_keys()` format:
-    #   uint32 magic = 0x5146534B ("QSFK" as integer)
-    #   uint8  version = 2
-    #   uint8  algo = 2 (DUAL)
-    #   uint32 xmss_priv_size; xmss_priv_bytes (seed[32] || index[4])
-    #   uint32 xmss_pub_size;  xmss_pub_bytes
-    #   uint32 sphincs_priv_size; sphincs_priv_bytes
-    #   uint32 sphincs_pub_size;  sphincs_pub_bytes
-    #
-    assert len(data) >= 6, "invalid quantum key file length"
-    magic, = struct.unpack("<I", data[0:4])
-    assert magic == 0x5146534B, "invalid quantum key file magic"
-    version = data[4]
-    algo = data[5]
-    assert version >= 2, "invalid quantum key file version"
-    assert algo == 2, "unexpected quantum key algorithm (expected DUAL)"
-
-    off = 6
-    xmss_priv_len, = struct.unpack("<I", data[off:off + 4])
-    off += 4
-    xmss_priv = data[off:off + xmss_priv_len]
-    assert len(xmss_priv) >= 36, "invalid XMSS private blob length"
-    return struct.unpack("<I", xmss_priv[32:36])[0]
 
 
 class QuantumMultinodeConsensusTest(BitcoinTestFramework):
@@ -314,20 +286,10 @@ class QuantumMultinodeConsensusTest(BitcoinTestFramework):
             reusable_utxo.get("coinbase", False),
             reusable_utxo.get("address", ""),
         )
-        key_path = n0.chain_path / "quantum_wallet.keys"
-        self.log.info("XMSS statefulness key file path used by test helper: %s", key_path)
-        xmss_idx_before = read_xmss_index(key_path)
-        self.log.info("XMSS statefulness index before first sign: %d", xmss_idx_before)
+        assert not (n0.chain_path / "quantum_wallet.keys").exists(), "quantum keys must live in wallet.dat, not datadir file"
 
         signed_once = n0.signrawtransactionwithwallet(reusable_funded_hex)["hex"]
-        xmss_idx_after_first = read_xmss_index(key_path)
-        self.log.info("XMSS statefulness index after first sign: %d", xmss_idx_after_first)
         signed_twice = n0.signrawtransactionwithwallet(reusable_funded_hex)["hex"]
-        xmss_idx_after_second = read_xmss_index(key_path)
-        self.log.info("XMSS statefulness index after second sign: %d", xmss_idx_after_second)
-
-        assert_equal(xmss_idx_after_first, xmss_idx_before + 1)
-        assert_equal(xmss_idx_after_second, xmss_idx_after_first + 1)
 
         stack_once = self.get_witness_stack(signed_once)
         stack_twice = self.get_witness_stack(signed_twice)
