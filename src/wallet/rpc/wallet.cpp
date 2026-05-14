@@ -63,6 +63,13 @@ static RPCHelpMan getwalletinfo()
                         {
                             {RPCResult::Type::STR, "flag", "The name of the flag"},
                         }},
+                        {RPCResult::Type::BOOL, "quantum_keys_in_wallet", "whether quantum receive/signing material exists in this wallet database"},
+                        {RPCResult::Type::BOOL, "quantum_can_sign", "whether quantum (XMSS/SPHINCS+) transaction signatures can be produced with the wallet's current lock state"},
+                        {RPCResult::Type::BOOL, "quantum_secrets_encrypted", "whether quantum key material is stored encrypted in the wallet database"},
+                        {RPCResult::Type::NUM, "quantum_xmss_index", /*optional=*/true, "current XMSS one-time signature index when quantum secrets are loaded in memory"},
+                        {RPCResult::Type::BOOL, "quantum_hd_derived", "whether quantum keys are deterministically derived from the same BIP32 extended secret as the taproot descriptors"},
+                        {RPCResult::Type::NUM, "quantum_record_format", /*optional=*/true, "on-disk quantum blob format version (1 legacy, 2 current); absent when no quantum state"},
+                        {RPCResult::Type::STR, "quantum_recovery_note", "how quantum keys relate to HD / mnemonic recovery"},
                         RESULT_LAST_PROCESSED_BLOCK,
                     }},
                 },
@@ -128,6 +135,18 @@ static RPCHelpMan getwalletinfo()
         }
     }
     obj.pushKV("flags", flags);
+
+    obj.pushKV("quantum_keys_in_wallet", pwallet->HasQuantumReceiveProgram());
+    obj.pushKV("quantum_can_sign", pwallet->QuantumCanSign());
+    obj.pushKV("quantum_secrets_encrypted", pwallet->QuantumSecretStorageIsEncrypted());
+    if (const auto xmss = pwallet->GetQuantumXmssSigningIndex()) {
+        obj.pushKV("quantum_xmss_index", static_cast<int64_t>(*xmss));
+    }
+    obj.pushKV("quantum_hd_derived", pwallet->QuantumKeysDerivedFromWalletHd());
+    if (pwallet->HasQuantumReceiveProgram()) {
+        obj.pushKV("quantum_record_format", static_cast<int>(pwallet->QuantumWalletBlobFormatVersion()));
+    }
+    obj.pushKV("quantum_recovery_note", _("Quantum spend keys are derived from the wallet HD master (same extended secret as taproot descriptors). Backup wallet.dat, or export the same descriptors / compatible mnemonic material that reproduces this xprv; the wallet encryption passphrase also encrypts the quantum blob.").original);
 
     AppendLastProcessedBlock(obj, *pwallet);
     return obj;

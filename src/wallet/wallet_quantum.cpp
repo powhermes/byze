@@ -5,14 +5,12 @@
 #include <bitcoin-build-config.h> // IWYU pragma: keep
 
 #include <addresstype.h>
-#include <common/args.h>
 #include <crypto/quantum_safe_config.h>
 #include <crypto/sha256.h>
 #include <hash.h>
 #include <pubkey.h>
 #include <script/interpreter.h>
 #include <serialize.h>
-#include <util/fs.h>
 #include <wallet/crypter.h>
 #include <wallet/wallet.h>
 #include <wallet/walletquantum.h>
@@ -25,6 +23,13 @@ namespace {
 
 static const uint256 g_quantum_wallet_iv = Hash(std::string_view{"byze_wallet_quantum_iv_v1"});
 
+/** Packed on-disk layout v1: [1][enc_flag][32 program][payload] */
+static constexpr uint8_t QUANTUM_PACK_V1 = 1;
+/** Packed on-disk layout v2: [2][enc_flag][origin][32 program][payload] */
+static constexpr uint8_t QUANTUM_PACK_V2 = 2;
+/** Quantum key material derived from the same BIP32 extended secret as taproot descriptors. */
+static constexpr uint8_t QUANTUM_ORIGIN_HD_MASTER = 1;
+
 static bool ProgramFromManager(const crypto::quantum_safe_manager& mgr, std::array<uint8_t, 32>& out)
 {
     const std::vector<uint8_t> bundle = mgr.get_dual_public_key_bundle();
@@ -35,28 +40,53 @@ static bool ProgramFromManager(const crypto::quantum_safe_manager& mgr, std::arr
     return true;
 }
 
-static std::vector<uint8_t> PackQuantumDbRecord(bool encrypted, const std::array<uint8_t, 32>& program, const std::vector<uint8_t>& payload)
+static std::vector<uint8_t> PackQuantumDbRecordV1(bool encrypted, const std::array<uint8_t, 32>& program, const std::vector<uint8_t>& payload)
 {
     std::vector<uint8_t> out;
     out.reserve(1 + 1 + 32 + payload.size());
-    out.push_back(1); // format version
+    out.push_back(QUANTUM_PACK_V1);
     out.push_back(encrypted ? uint8_t{1} : uint8_t{0});
     out.insert(out.end(), program.begin(), program.end());
     out.insert(out.end(), payload.begin(), payload.end());
     return out;
 }
 
-static bool UnpackQuantumDbRecord(const std::vector<uint8_t>& raw, bool& encrypted, std::array<uint8_t, 32>& program, std::vector<uint8_t>& payload)
+static std::vector<uint8_t> PackQuantumDbRecordV2(bool encrypted, uint8_t origin, const std::array<uint8_t, 32>& program, const std::vector<uint8_t>& payload)
 {
-    if (raw.size() < 1 + 1 + 32) return false;
-    if (raw[0] != 1) return false;
-    encrypted = raw[1] != 0;
-    std::memcpy(program.data(), raw.data() + 2, 32);
-    payload.assign(raw.begin() + 34, raw.end());
-    return true;
+    std::vector<uint8_t> out;
+    out.reserve(1 + 1 + 1 + 32 + payload.size());
+    out.push_back(QUANTUM_PACK_V2);
+    out.push_back(encrypted ? uint8_t{1} : uint8_t{0});
+    out.push_back(origin);
+    out.insert(out.end(), program.begin(), program.end());
+    out.insert(out.end(), payload.begin(), payload.end());
+    return out;
 }
 
-/** Recover XMSS index after an interrupted prior sign (same semantics as legacy .pending file). */
+static bool UnpackQuantumDbRecord(const std::vector<uint8_t>& raw, uint8_t& format_out, uint8_t& origin_out, bool& encrypted, std::array<uint8_t, 32>& program, std::vector<uint8_t>& payload)
+{
+    format_out = 0;
+    origin_out = 0;
+    if (raw.size() < 1 + 1 + 32) return false;
+    format_out = raw[0];
+    if (format_out == QUANTUM_PACK_V1) {
+        encrypted = raw[1] != 0;
+        origin_out = 0;
+        std::memcpy(program.data(), raw.data() + 2, 32);
+        payload.assign(raw.begin() + 34, raw.end());
+        return true;
+    }
+    if (format_out == QUANTUM_PACK_V2) {
+        if (raw.size() < 1 + 1 + 1 + 32) return false;
+        encrypted = raw[1] != 0;
+        origin_out = raw[2];
+        std::memcpy(program.data(), raw.data() + 3, 32);
+        payload.assign(raw.begin() + 35, raw.end());
+        return true;
+    }
+    return false;
+}
+
 static bool RecoverPendingXmssDb(WalletBatch& batch, crypto::quantum_safe_manager& mgr)
 {
     uint32_t pending_index{0};
@@ -79,10 +109,14 @@ DBErrors CWallet::ApplyQuantumStateFromPackedBlob(const std::vector<unsigned cha
     bool encrypted{false};
     std::array<uint8_t, 32> program{};
     std::vector<uint8_t> payload;
-    if (!UnpackQuantumDbRecord(raw, encrypted, program, payload)) {
+    uint8_t fmt{0};
+    uint8_t origin{0};
+    if (!UnpackQuantumDbRecord(raw, fmt, origin, encrypted, program, payload)) {
         WalletLogPrintf("%s: corrupt quantum state record\n", __func__);
         return DBErrors::CORRUPT;
     }
+    m_quantum_blob_format = fmt;
+    m_quantum_key_origin = origin;
     m_quantum_program_bytes = program;
     m_quantum_secret_storage = std::move(payload);
     m_quantum_secret_is_encrypted = encrypted;
@@ -116,116 +150,31 @@ DBErrors CWallet::LoadQuantumRecordsFromDatabase(DatabaseBatch& batch)
     m_quantum_secret_storage.clear();
     m_quantum_secret_is_encrypted = false;
     m_quantum_manager.reset();
+    m_quantum_blob_format = QUANTUM_PACK_V2;
+    m_quantum_key_origin = 0;
 
     std::vector<unsigned char> raw;
     if (!batch.Read(DBKeys::QUANTUM_STATE, raw) || raw.empty()) {
-        if (!MigrateLegacyQuantumKeysFromDiskIfNeeded()) {
-            return DBErrors::LOAD_FAIL;
-        }
-        if (!batch.Read(DBKeys::QUANTUM_STATE, raw) || raw.empty()) {
-            return DBErrors::LOAD_OK;
-        }
+        return DBErrors::LOAD_OK;
     }
-
     return ApplyQuantumStateFromPackedBlob(raw);
 }
 
-bool CWallet::MigrateLegacyQuantumKeysFromDiskIfNeeded()
+bool CWallet::PersistQuantumKeyMaterialFromHdMaster(WalletBatch& batch, const CExtKey& master_key, bool overwrite_existing)
 {
     AssertLockHeld(cs_wallet);
-
-    WalletBatch probe_batch(GetDatabase());
-    std::vector<unsigned char> existing;
-    if (probe_batch.ReadQuantumState(existing) && !existing.empty()) {
-        return true;
-    }
-
-    const fs::path legacy = gArgs.GetDataDirNet() / "quantum_wallet.keys";
-    if (!fs::exists(legacy)) {
-        return true;
-    }
-
-    const std::string& wname = GetName();
-    const bool eligible = wname.empty() || wname == "default_wallet";
-    if (!eligible) {
-        WalletLogPrintf(
-            "%s: WARN: legacy quantum_wallet.keys exists under the data directory but was not imported: wallet \"%s\" "
-            "is not the designated primary wallet (only \"\" or \"default_wallet\" may consume the legacy file). "
-            "An external quantum key file may still be required for older setups until you remove it or migrate manually.\n",
-            __func__,
-            wname);
-        return true;
-    }
-
-    if (IsCrypted() && vMasterKey.empty()) {
-        WalletLogPrintf(
-            "%s: WARN: legacy quantum_wallet.keys found but wallet is encrypted; unlock once with walletpassphrase so the "
-            "legacy quantum key file can be migrated into the wallet database. Until then, migration is incomplete.\n",
-            __func__);
-        return true;
-    }
-
-    crypto::quantum_safe_manager mgr;
-    if (!mgr.load_dual_keys(fs::PathToString(legacy)) || !mgr.ensure_modern_keys()) {
-        WalletLogPrintf(
-            "%s: WARN: legacy quantum_wallet.keys present but failed to load; migration incomplete. Wallet will not use this file for new operations.\n",
-            __func__);
-        return true;
-    }
-    std::array<uint8_t, 32> program{};
-    if (!ProgramFromManager(mgr, program)) {
-        WalletLogPrintf("%s: WARN: legacy quantum_wallet.keys loaded but program derivation failed; migration incomplete.\n", __func__);
-        return true;
-    }
-    std::vector<uint8_t> plain;
-    if (!mgr.serialize_dual_keys(plain)) {
-        WalletLogPrintf("%s: WARN: legacy quantum_wallet.keys serialization failed; migration incomplete.\n", __func__);
-        return true;
-    }
-
-    const bool enc = IsCrypted() && !vMasterKey.empty();
-    std::vector<uint8_t> payload = plain;
-    if (enc) {
-        CKeyingMaterial secret(plain.begin(), plain.end());
-        std::vector<unsigned char> cipher;
-        if (!EncryptSecret(vMasterKey, secret, g_quantum_wallet_iv, cipher)) {
-            WalletLogPrintf("%s: ERROR: could not encrypt migrated quantum keys for wallet database; migration failed.\n", __func__);
-            return false;
+    if (!overwrite_existing) {
+        std::vector<uint8_t> existing;
+        if (batch.ReadQuantumState(existing) && !existing.empty()) {
+            return true;
         }
-        payload = std::move(cipher);
-    }
-    const std::vector<uint8_t> packed = PackQuantumDbRecord(enc, program, payload);
-    if (!RunWithinTxn(GetDatabase(), "quantum_migrate_legacy", [&](WalletBatch& wb) { return wb.WriteQuantumState(packed); })) {
-        WalletLogPrintf("%s: ERROR: failed to persist migrated quantum keys into wallet database.\n", __func__);
-        return false;
     }
 
-    try {
-        const fs::path bak = legacy + ".migrated.bak";
-        fs::rename(legacy, bak);
-        WalletLogPrintf("%s: Legacy quantum key file migrated into wallet database (previous file moved to %s)\n", __func__, fs::PathToString(bak));
-    } catch (const std::exception& e) {
-        WalletLogPrintf(
-            "%s: WARN: quantum keys were written to the wallet database but the legacy file could not be renamed (%s). "
-            "The wallet no longer reads quantum_wallet.keys; remove %s manually when convenient.\n",
-            __func__,
-            e.what(),
-            fs::PathToString(legacy));
-    }
-    return true;
-}
+    unsigned char ext_bytes[BIP32_EXTKEY_SIZE];
+    master_key.Encode(ext_bytes);
 
-bool CWallet::EnsureQuantumKeysForReceive()
-{
-    AssertLockHeld(cs_wallet);
-    if (m_quantum_program_bytes.has_value()) {
-        return true;
-    }
-    if (IsCrypted() && vMasterKey.empty()) {
-        return false;
-    }
     crypto::quantum_safe_manager mgr;
-    if (!mgr.generate_dual_keys() || !mgr.ensure_modern_keys()) {
+    if (!mgr.generate_dual_keys_from_entropy_ikm(ext_bytes, BIP32_EXTKEY_SIZE) || !mgr.ensure_modern_keys()) {
         return false;
     }
     std::array<uint8_t, 32> program{};
@@ -243,14 +192,13 @@ bool CWallet::EnsureQuantumKeysForReceive()
         }
         payload = std::move(cipher);
     }
-    const std::vector<uint8_t> packed = PackQuantumDbRecord(enc, program, payload);
-
-    if (!RunWithinTxn(GetDatabase(), "quantum_create", [&](WalletBatch& wbatch) {
-            return wbatch.WriteQuantumState(packed);
-        })) {
+    const std::vector<uint8_t> packed = PackQuantumDbRecordV2(enc, QUANTUM_ORIGIN_HD_MASTER, program, payload);
+    if (!batch.WriteQuantumState(packed)) {
         return false;
     }
 
+    m_quantum_blob_format = QUANTUM_PACK_V2;
+    m_quantum_key_origin = QUANTUM_ORIGIN_HD_MASTER;
     m_quantum_program_bytes = program;
     m_quantum_secret_storage = payload;
     m_quantum_secret_is_encrypted = enc;
@@ -260,6 +208,40 @@ bool CWallet::EnsureQuantumKeysForReceive()
         return false;
     }
     return true;
+}
+
+std::optional<CExtKey> CWallet::TryGetTaprootDescriptorRootExtKey() const
+{
+    AssertLockHeld(cs_wallet);
+    const ScriptPubKeyMan* raw = GetScriptPubKeyMan(OutputType::BECH32M, /*internal=*/false);
+    const auto* spkm = dynamic_cast<const DescriptorScriptPubKeyMan*>(raw);
+    if (!spkm) return std::nullopt;
+    CExtKey out;
+    if (!spkm->ExportTaprootDescriptorRootExtKey(out)) return std::nullopt;
+    return out;
+}
+
+bool CWallet::EnsureQuantumKeysForReceive()
+{
+    AssertLockHeld(cs_wallet);
+    if (m_quantum_program_bytes.has_value()) {
+        return true;
+    }
+    if (IsCrypted() && vMasterKey.empty()) {
+        return false;
+    }
+
+    const std::optional<CExtKey> master = TryGetTaprootDescriptorRootExtKey();
+    if (!master) {
+        return false;
+    }
+
+    if (!RunWithinTxn(GetDatabase(), "quantum_create_hd", [&](WalletBatch& wbatch) {
+            return PersistQuantumKeyMaterialFromHdMaster(wbatch, *master, /*overwrite_existing=*/false);
+        })) {
+        return false;
+    }
+    return m_quantum_program_bytes.has_value() && static_cast<bool>(m_quantum_manager);
 }
 
 bool CWallet::IsQuantumMine(const CScript& script) const
@@ -335,7 +317,9 @@ bool CWallet::EncryptQuantumKeysForWallet(const CKeyingMaterial& master_key, Wal
     CKeyingMaterial secret(plain.begin(), plain.end());
     std::vector<unsigned char> cipher;
     if (!EncryptSecret(master_key, secret, g_quantum_wallet_iv, cipher)) return false;
-    const std::vector<uint8_t> packed = PackQuantumDbRecord(true, *m_quantum_program_bytes, cipher);
+    const std::vector<uint8_t> packed = m_quantum_blob_format >= QUANTUM_PACK_V2
+        ? PackQuantumDbRecordV2(true, m_quantum_key_origin, *m_quantum_program_bytes, cipher)
+        : PackQuantumDbRecordV1(true, *m_quantum_program_bytes, cipher);
     if (batch) {
         if (!batch->WriteQuantumState(packed)) return false;
     } else {
@@ -398,7 +382,9 @@ bool CWallet::SignQuantumTransactionSighash(const uint256& sighash, std::span<co
                 payload = std::move(cipher);
             }
             const std::array<uint8_t, 32> prog_copy = *m_quantum_program_bytes;
-            const std::vector<uint8_t> packed = PackQuantumDbRecord(enc, prog_copy, payload);
+            const std::vector<uint8_t> packed = pw->m_quantum_blob_format >= QUANTUM_PACK_V2
+                ? PackQuantumDbRecordV2(enc, pw->m_quantum_key_origin, prog_copy, payload)
+                : PackQuantumDbRecordV1(enc, prog_copy, payload);
             if (!batch.WriteQuantumState(packed)) return false;
             batch.EraseQuantumPending();
 
@@ -410,6 +396,13 @@ bool CWallet::SignQuantumTransactionSighash(const uint256& sighash, std::span<co
         return false;
     }
     return success;
+}
+
+std::optional<uint32_t> CWallet::GetQuantumXmssSigningIndex() const
+{
+    AssertLockHeld(cs_wallet);
+    if (!m_quantum_manager) return std::nullopt;
+    return m_quantum_manager->get_xmss_index();
 }
 
 } // namespace wallet

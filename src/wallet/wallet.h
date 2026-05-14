@@ -12,6 +12,7 @@
 #include <interfaces/chain.h>
 #include <interfaces/handler.h>
 #include <kernel/cs_main.h>
+#include <key.h>
 #include <logging.h>
 #include <node/types.h>
 #include <outputtype.h>
@@ -75,7 +76,6 @@ class WalletBatch;
 enum class DBErrors : int;
 } // namespace wallet
 struct CBlockLocator;
-struct CExtKey;
 struct FlatSigningProvider;
 struct KeyOriginInfo;
 struct PartiallySignedTransaction;
@@ -442,12 +442,16 @@ private:
     //! Cache of descriptor ScriptPubKeys used for IsMine. Maps ScriptPubKey to set of spkms
     std::unordered_map<CScript, std::vector<ScriptPubKeyMan*>, SaltedSipHasher> m_cached_spks;
 
-    /** Byze: single quantum receive family per wallet — P2TR witness program (32-byte xonly output key). */
+    /** Byze: serialized quantum dual-key state (XMSS+SPHINCS+) stored in the wallet DB. */
     std::optional<std::array<uint8_t, 32>> m_quantum_program_bytes GUARDED_BY(cs_wallet);
     /** Serialized dual XMSS/SPHINCS+ state (plaintext or AES-encrypted with wallet master key). */
     std::vector<uint8_t> m_quantum_secret_storage GUARDED_BY(cs_wallet);
     bool m_quantum_secret_is_encrypted GUARDED_BY(cs_wallet){false};
     std::unique_ptr<crypto::quantum_safe_manager> m_quantum_manager GUARDED_BY(cs_wallet);
+    /** Byze: on-disk quantum blob layout (1 legacy, 2 with HD-origin byte). */
+    uint8_t m_quantum_blob_format GUARDED_BY(cs_wallet){2};
+    /** Byze: 0 unknown / legacy v1 blob, 1 derived from descriptor HD master (deterministic with wallet seed). */
+    uint8_t m_quantum_key_origin GUARDED_BY(cs_wallet){0};
 
     //! Set of both spent and unspent transaction outputs owned by this wallet
     std::unordered_map<COutPoint, WalletTXO, SaltedOutpointHasher> m_txos GUARDED_BY(cs_wallet);
@@ -677,21 +681,31 @@ public:
     /** Sign the tx given the input coins and sighash. */
     bool SignTransaction(CMutableTransaction& tx, const std::map<COutPoint, Coin>& coins, int sighash, std::map<int, bilingual_str>& input_errors) const;
 
-    /** Byze: load quantum key records from the wallet database (and optional legacy datadir migration). */
+    /** Byze: load quantum key records from the wallet database. */
     DBErrors LoadQuantumRecordsFromDatabase(DatabaseBatch& batch) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /**
-     * Byze: one-time import of legacy datadir `quantum_wallet.keys` into this wallet DB.
-     * Only the primary/default-style wallet names may consume the global legacy file
-     * (empty name or "default_wallet"); other wallets log and skip for multi-wallet safety.
-     * Requires vMasterKey when the wallet is encrypted. Returns false only on DB write failure.
+     * Byze: derive and persist quantum keys from the same HD master used for taproot descriptors.
+     * Skips if quantum state already exists unless overwrite_existing is true.
      */
-    bool MigrateLegacyQuantumKeysFromDiskIfNeeded() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool PersistQuantumKeyMaterialFromHdMaster(WalletBatch& batch, const CExtKey& master_key, bool overwrite_existing) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: export taproot descriptor root extended secret if available (same lock rules as signing). */
+    std::optional<CExtKey> TryGetTaprootDescriptorRootExtKey() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: ensure dual quantum keys exist; persist to DB. Caller must hold cs_wallet. */
     bool EnsureQuantumKeysForReceive() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: true if script is this wallet's quantum P2TR output. */
     bool IsQuantumMine(const CScript& script) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: quantum signing material is loaded in memory (wallet unlocked or not encrypted). */
     bool QuantumCanSign() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: witness v1 programme for quantum receive is present in the wallet database. */
+    bool HasQuantumReceiveProgram() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) { return m_quantum_program_bytes.has_value(); }
+    /** Byze: quantum secret blob on disk is stored encrypted (mirrors wallet encryption). */
+    bool QuantumSecretStorageIsEncrypted() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) { return m_quantum_secret_is_encrypted; }
+    /** Byze: current XMSS leaf index when signing material is loaded; absent otherwise. */
+    std::optional<uint32_t> GetQuantumXmssSigningIndex() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: quantum keys were derived from the wallet HD master (deterministic with descriptor seed). */
+    bool QuantumKeysDerivedFromWalletHd() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) { return m_quantum_key_origin == 1; }
+    /** Byze: on-disk quantum record format version (1 legacy layout, 2 current). */
+    uint8_t QuantumWalletBlobFormatVersion() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) { return m_quantum_blob_format; }
     /** Byze: sign taproot quantum sighash using wallet DB-backed keys. */
     bool SignQuantumTransactionSighash(const uint256& sighash, std::span<const unsigned char> output_program, std::vector<unsigned char>& xmss_sig, std::vector<unsigned char>& sphincs_sig, std::vector<unsigned char>& dual_pubkey_bundle) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: encrypt quantum blob during wallet encryption. */

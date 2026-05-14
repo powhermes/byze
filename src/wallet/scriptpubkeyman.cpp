@@ -19,6 +19,7 @@
 #include <util/translation.h>
 #include <wallet/scriptpubkeyman.h>
 
+#include <cstring>
 #include <optional>
 
 using common::PSBTError;
@@ -1536,6 +1537,34 @@ bool DescriptorScriptPubKeyMan::GetDescriptorString(std::string& out, const bool
     }
 
     return m_wallet_descriptor.descriptor->ToNormalizedString(provider, out, &m_wallet_descriptor.cache);
+}
+
+bool DescriptorScriptPubKeyMan::ExportTaprootDescriptorRootExtKey(CExtKey& out) const
+{
+    LOCK(cs_desc_man);
+    if (!m_wallet_descriptor.descriptor) return false;
+    const std::optional<OutputType> oty = m_wallet_descriptor.descriptor->GetOutputType();
+    if (!oty || *oty != OutputType::BECH32M) return false;
+    if (!HavePrivateKeys()) return false;
+
+    FlatSigningProvider provider;
+    provider.keys = GetKeys();
+    std::string prv;
+    if (!m_wallet_descriptor.descriptor->ToPrivateString(provider, prv)) return false;
+
+    static constexpr const char* kPrefix = "tr(";
+    const auto trpos = prv.find(kPrefix);
+    if (trpos == std::string::npos) return false;
+    size_t i = trpos + strlen(kPrefix);
+    while (i < prv.size() && std::isspace(static_cast<unsigned char>(prv[i]))) ++i;
+    const size_t slash = prv.find('/', i);
+    const size_t rpar = prv.find(')', i);
+    size_t j = std::min(slash == std::string::npos ? prv.size() : slash,
+                        rpar == std::string::npos ? prv.size() : rpar);
+    if (j <= i || j > prv.size()) return false;
+    const std::string xkey = prv.substr(i, j - i);
+    out = DecodeExtKey(xkey);
+    return out.key.IsValid();
 }
 
 void DescriptorScriptPubKeyMan::UpgradeDescriptorCache()

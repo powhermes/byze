@@ -28,6 +28,7 @@
 
 #include "crypto/quantum_safe.h"
 #include "crypto/quantum_safe_config.h"
+#include <crypto/hkdf_sha256_32.h>
 #include <crypto/sha3.h>
 #include <crypto/hmac_keccak.h>
 #include <logging.h>
@@ -85,6 +86,19 @@ namespace crypto
     }
     catch (...)
     {
+      return false;
+    }
+  }
+
+  bool xmss_private_key::initialize_from_entropy(const unsigned char seed32[KEY_SIZE])
+  {
+    try {
+      std::memcpy(m_seed.data(), seed32, KEY_SIZE);
+      uint256 seed_hash = hash_data(m_seed.data(), m_seed.size());
+      std::memcpy(m_private_key.data(), seed_hash.begin(), KEY_SIZE);
+      m_index = 0;
+      return true;
+    } catch (...) {
       return false;
     }
   }
@@ -715,6 +729,17 @@ namespace crypto
     }
     catch (...)
     {
+      return false;
+    }
+  }
+
+  bool sphincs_private_key::initialize_from_entropy128(const unsigned char seed64[KEY_SIZE], const unsigned char priv64[KEY_SIZE])
+  {
+    try {
+      std::memcpy(m_seed.data(), seed64, KEY_SIZE);
+      std::memcpy(m_private_key.data(), priv64, KEY_SIZE);
+      return true;
+    } catch (...) {
       return false;
     }
   }
@@ -1549,6 +1574,41 @@ namespace crypto
     }
     catch (...)
     {
+      return false;
+    }
+  }
+
+  bool quantum_safe_manager::generate_dual_keys_from_entropy_ikm(const unsigned char* ikm, size_t ikm_len, uint32_t xmss_tree_height, uint32_t sphincs_level)
+  {
+    (void)xmss_tree_height;
+    (void)sphincs_level;
+    try {
+      CHKDF_HMAC_SHA256_L32 hkdf(ikm, ikm_len, std::string{"byze_quantum_hd_v1"});
+      unsigned char xmss_seed[32];
+      hkdf.Expand32(std::string{"byze/q/xmss_seed"}, xmss_seed);
+      unsigned char s1[32], s2[32], p1[32], p2[32];
+      hkdf.Expand32(std::string{"byze/q/sph_seed_a"}, s1);
+      hkdf.Expand32(std::string{"byze/q/sph_seed_b"}, s2);
+      hkdf.Expand32(std::string{"byze/q/sph_priv_a"}, p1);
+      hkdf.Expand32(std::string{"byze/q/sph_priv_b"}, p2);
+      unsigned char sph_seed[64];
+      unsigned char sph_priv[64];
+      std::memcpy(sph_seed, s1, 32);
+      std::memcpy(sph_seed + 32, s2, 32);
+      std::memcpy(sph_priv, p1, 32);
+      std::memcpy(sph_priv + 32, p2, 32);
+
+      m_xmss_private = std::make_unique<xmss_private_key>();
+      if (!m_xmss_private->initialize_from_entropy(xmss_seed)) return false;
+      m_xmss_public = std::make_unique<xmss_public_key>(m_xmss_private->get_public_key());
+
+      m_sphincs_private = std::make_unique<sphincs_private_key>();
+      if (!m_sphincs_private->initialize_from_entropy128(sph_seed, sph_priv)) return false;
+      m_sphincs_public = std::make_unique<sphincs_public_key>(m_sphincs_private->get_public_key());
+
+      m_current_algo = quantum_algorithm::DUAL;
+      return true;
+    } catch (...) {
       return false;
     }
   }

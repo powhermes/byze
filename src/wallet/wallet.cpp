@@ -3339,9 +3339,6 @@ bool CWallet::Unlock(const CKeyingMaterial& vMasterKeyIn)
             }
         }
         vMasterKey = vMasterKeyIn;
-        if (!MigrateLegacyQuantumKeysFromDiskIfNeeded()) {
-            return false;
-        }
         {
             WalletBatch quantum_batch(GetDatabase());
             std::vector<unsigned char> quantum_raw;
@@ -3574,6 +3571,9 @@ void CWallet::SetupDescriptorScriptPubKeyMans(WalletBatch& batch, const CExtKey&
     AssertLockHeld(cs_wallet);
     for (bool internal : {false, true}) {
         SetupDescriptorScriptPubKeyMan(batch, master_key, OutputType::BECH32M, internal);
+    }
+    if (!PersistQuantumKeyMaterialFromHdMaster(batch, master_key, /*overwrite_existing=*/false)) {
+        throw std::runtime_error(std::string(__func__) + ": failed to derive wallet-bound quantum keys from HD master");
     }
 }
 

@@ -834,9 +834,9 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             # block in the cache does not age too much (have an old tip age).
             # This is needed so that we are out of IBD when the test starts,
             # see the tip age check in IsInitialBlockDownload().
-            # Byze: only bech32m (witness v1) outputs are valid. The legacy/bech32 cache
-            # addresses from TestNode.PRIV_KEYS are not usable for mining in this codebase, so
-            # deterministically generate bech32m (P2TR) addresses instead.
+            # Byze: only bech32m (witness v1) outputs are valid for coinbase destinations.
+            # Use fixed bech32m addresses (not the TestNode.PRIV_KEYS list) so cache shape stays
+            # independent of per-node deterministic mining keys.
             gen_addresses = [
                 create_deterministic_address_bcrt1_p2tr_op_true((i + 1).to_bytes(32, "big"))[0]
                 for i in range(4)

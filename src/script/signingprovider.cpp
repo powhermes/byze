@@ -117,7 +117,6 @@ bool FlatSigningProvider::GetTaprootBuilder(const XOnlyPubKey& output_key, Tapro
 bool FlatSigningProvider::SignQuantumSighash(const uint256& sighash, std::span<const unsigned char> output_program, std::vector<unsigned char>& xmss_sig, std::vector<unsigned char>& sphincs_sig, std::vector<unsigned char>& dual_pubkey_bundle) const
 {
     // Byze: quantum transaction signing is wallet-scoped (see CWallet / WalletQuantumSigningProvider).
-    // The legacy datadir quantum_wallet.keys path is not used for spends.
     return false;
 }
 

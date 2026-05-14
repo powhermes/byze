@@ -19,13 +19,16 @@ class WalletQuantumInvariantsTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         self.num_nodes = 1
         self.extra_args = [["-fallbackfee=0.001"]]
+        self.rpc_timeout = 3600
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
 
     def run_test(self):
         node = self.nodes[0]
-        self.generatetoaddress(node, 110, node.getnewaddress())
+        addr = node.getnewaddress()
+        for _ in range(110):
+            self.generatetoaddress(node, 1, addr)
 
         self.log.info("Reject funding raw tx with valid non-quantum witness v0 output")
         raw = node.createrawtransaction([], {node.getnewaddress(): 1.0})

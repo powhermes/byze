@@ -43,6 +43,9 @@ namespace crypto
 
     // Generate new XMSS key pair
     bool generate();
+
+    /** Deterministic: 32-byte seed (same derivation as generate() after RNG fills m_seed). */
+    bool initialize_from_entropy(const unsigned char seed32[KEY_SIZE]);
     
     // Load from bytes
     bool load(const std::vector<uint8_t>& data);
@@ -129,6 +132,9 @@ namespace crypto
 
     // Generate new SPHINCS+ key pair
     bool generate();
+
+    /** Deterministic: 64-byte seed and 64-byte private material (replaces RNG in generate()). */
+    bool initialize_from_entropy128(const unsigned char seed64[KEY_SIZE], const unsigned char priv64[KEY_SIZE]);
     
     // Load from bytes
     bool load(const std::vector<uint8_t>& data);
@@ -225,6 +231,11 @@ namespace crypto
 
     // Dual algorithm enforcement methods
     bool generate_dual_keys(uint32_t xmss_tree_height = 10, uint32_t sphincs_level = 5);
+    /**
+     * Derive dual keys deterministically from IKM (e.g. HKDF over serialized BIP32 ext key).
+     * Uses RFC5869 HKDF-HMAC-SHA256 with fixed labels; independent of generate_dual_keys() RNG.
+     */
+    bool generate_dual_keys_from_entropy_ikm(const unsigned char* ikm, size_t ikm_len, uint32_t xmss_tree_height = 10, uint32_t sphincs_level = 5);
     bool has_dual_keys() const;
     bool has_old_format_keys() const; // Check if keys are in old vulnerable format
     bool ensure_modern_keys(uint32_t xmss_tree_height = 10, uint32_t sphincs_level = 5); // Auto-migrate old keys
@@ -240,7 +251,7 @@ namespace crypto
     bool load_dual_keys(const std::string& filename);
     /** Serialize dual XMSS/SPHINCS+ keys (same binary layout as save_dual_keys file body). */
     bool serialize_dual_keys(std::vector<uint8_t>& out) const;
-    /** Load from buffer produced by serialize_dual_keys or a legacy quantum_wallet.keys file. */
+    /** Load from buffer produced by serialize_dual_keys (same layout as historical dual-key file format). */
     bool deserialize_dual_keys(const std::vector<uint8_t>& in);
     std::vector<uint8_t> get_dual_public_key() const;
     std::vector<uint8_t> get_dual_public_key_bundle() const;

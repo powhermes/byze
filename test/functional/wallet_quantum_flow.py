@@ -14,14 +14,25 @@ class WalletQuantumFlowTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         self.num_nodes = 2
         self.extra_args = [["-fallbackfee=0.001"], ["-fallbackfee=0.001"]]
+        self.rpc_timeout = 3600
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
 
     def run_test(self):
         n0, n1 = self.nodes[0], self.nodes[1]
-        self.generate(n0, 110)
+        for _ in range(110):
+            self.generate(n0, 1)
         self.sync_all()
+        n0.getnewaddress()
+
+        self.log.info("getwalletinfo reports quantum health (HD-derived keys in wallet.dat)")
+        info0 = n0.getwalletinfo()
+        assert_equal(info0["quantum_keys_in_wallet"], True)
+        assert_equal(info0["quantum_can_sign"], True)
+        assert_equal(info0["quantum_hd_derived"], True)
+        assert_equal(info0["quantum_record_format"], 2)
+        assert "quantum_recovery_note" in info0
 
         self.log.info("Quantum spend material must not use datadir quantum_wallet.keys")
         for i, node in enumerate(self.nodes):
