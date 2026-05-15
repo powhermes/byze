@@ -19,6 +19,9 @@ class Chain;
 namespace wallet {
 struct WalletContext;
 
+/** Byze: delete obsolete datadir quantum_wallet.keys (keys live in wallet.dat only). */
+void RemoveLegacyDatadirQuantumKeysFile(const ArgsManager& args);
+
 //! Responsible for reading and validating the -wallet arguments and verifying the wallet database.
 bool VerifyWallets(WalletContext& context);
 

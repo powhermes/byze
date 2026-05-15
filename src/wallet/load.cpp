@@ -7,6 +7,7 @@
 
 #include <common/args.h>
 #include <interfaces/chain.h>
+#include <logging.h>
 #include <scheduler.h>
 #include <util/check.h>
 #include <util/fs.h>
@@ -24,6 +25,23 @@
 using util::Join;
 
 namespace wallet {
+
+void RemoveLegacyDatadirQuantumKeysFile(const ArgsManager& args)
+{
+    const fs::path datadir = args.GetDataDirNet();
+    for (const char* name : {"quantum_wallet.keys", "quantum_wallet.keys.tmp"}) {
+        const fs::path path = datadir / name;
+        if (!fs::exists(path)) continue;
+        std::error_code ec;
+        if (fs::remove(path, ec)) {
+            LogPrintf("Removed obsolete %s (quantum keys are stored in wallet.dat only)\n", fs::PathToString(path));
+        } else {
+            LogPrintf("Warning: obsolete %s is present but could not be removed (%s); it is ignored\n",
+                fs::PathToString(path), ec.message());
+        }
+    }
+}
+
 bool VerifyWallets(WalletContext& context)
 {
     interfaces::Chain& chain = *context.chain;
@@ -53,6 +71,8 @@ bool VerifyWallets(WalletContext& context)
     LogInfo("Using wallet directory %s", fs::PathToString(GetWalletDir()));
     // Print general DB information
     LogDBInfo();
+
+    RemoveLegacyDatadirQuantumKeysFile(args);
 
     chain.initMessage(_("Verifying wallet(s)…"));
 

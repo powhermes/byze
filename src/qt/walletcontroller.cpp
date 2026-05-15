@@ -17,6 +17,7 @@
 #include <util/string.h>
 #include <util/threadnames.h>
 #include <util/translation.h>
+#include <univalue.h>
 #include <wallet/wallet.h>
 
 #include <algorithm>
@@ -285,6 +286,25 @@ void CreateWalletActivity::finish()
         QMessageBox::critical(m_parent_widget, tr("Create wallet failed"), QString::fromStdString(m_error_message.translated));
     } else if (!m_warning_message.empty()) {
         QMessageBox::warning(m_parent_widget, tr("Create wallet warning"), QString::fromStdString(Join(m_warning_message, Untranslated("\n")).translated));
+    } else if (m_wallet_model && m_show_recovery_phrase) {
+        try {
+            UniValue params(UniValue::VARR);
+            const UniValue result = node().executeRpc(
+                "getrecoveryphrase", params, m_wallet_model->getWalletName().toStdString());
+            if (result.isObject() && result.exists("mnemonic")) {
+                QMessageBox box(m_parent_widget);
+                box.setIcon(QMessageBox::Warning);
+                box.setWindowTitle(tr("Wallet recovery phrase"));
+                box.setText(tr("Write down these 24 words and store them safely. "
+                               "They are also saved in wallet.dat; backing up wallet.dat is sufficient for full recovery."));
+                box.setDetailedText(QString::fromStdString(result["mnemonic"].get_str()));
+                box.setStandardButtons(QMessageBox::Ok);
+                box.exec();
+            }
+        } catch (const std::exception& e) {
+            QMessageBox::warning(m_parent_widget, tr("Recovery phrase"),
+                tr("Could not read recovery phrase: %1").arg(QString::fromStdString(e.what())));
+        }
     }
 
     if (m_wallet_model) Q_EMIT created(m_wallet_model);
@@ -318,6 +338,10 @@ void CreateWalletActivity::create()
         Q_EMIT finished();
     });
     connect(m_create_wallet_dialog, &QDialog::accepted, [this] {
+        m_show_recovery_phrase = m_create_wallet_dialog->isShowRecoveryPhraseChecked()
+            && !m_create_wallet_dialog->isMakeBlankWalletChecked()
+            && !m_create_wallet_dialog->isDisablePrivateKeysChecked()
+            && !m_create_wallet_dialog->isExternalSignerChecked();
         if (m_create_wallet_dialog->isEncryptWalletChecked()) {
             askPassphrase();
         } else {

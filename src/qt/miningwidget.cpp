@@ -191,11 +191,14 @@ void MiningWidget::updateMiningInfo()
     try {
         UniValue params(UniValue::VARR);
         
-        UniValue result = m_clientModel->node().executeRpc("getmininginfo", params, "");
-        
+        UniValue result = m_clientModel->node().executeRpc("getminingstatus", params, "");
+        if (!result.isObject()) {
+            result = m_clientModel->node().executeRpc("getmininginfo", params, "");
+        }
+
         if (result.isObject()) {
-            // Update mining status
-            bool active = result["mining_active"].get_bool();
+            // Update mining status (getminingstatus uses "active"; getmininginfo uses "mining_active")
+            bool active = result.exists("active") ? result["active"].get_bool() : result["mining_active"].get_bool();
             setMiningActive(active);
             
             if (active) {
@@ -212,7 +215,9 @@ void MiningWidget::updateMiningInfo()
                 }
                 
                 // Update address
-                if (result.exists("mining_address")) {
+                if (result.exists("address")) {
+                    m_miningAddress = QString::fromStdString(result["address"].get_str());
+                } else if (result.exists("mining_address")) {
                     m_miningAddress = QString::fromStdString(result["mining_address"].get_str());
                     m_addressInput->setText(m_miningAddress);
                 }

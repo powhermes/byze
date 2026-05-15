@@ -30,7 +30,9 @@ add_library(bitcoin_wallet STATIC EXCLUDE_FROM_ALL
   spend.cpp
   sqlite.cpp
   transaction.cpp
+  bip39.cpp
   wallet.cpp
+  wallet_mnemonic.cpp
   wallet_quantum.cpp
   walletdb.cpp
   walletutil.cpp

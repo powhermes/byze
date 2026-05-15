@@ -85,6 +85,8 @@ extern const std::string WALLETDESCRIPTORCKEY;
 extern const std::string WALLETDESCRIPTORKEY;
 extern const std::string WATCHMETA;
 extern const std::string WATCHS;
+/** Byze: BIP39 recovery phrase (optionally encrypted). */
+extern const std::string MNEMONIC;
 /** Byze: serialized quantum dual-key state (XMSS+SPHINCS+) stored in the wallet DB. */
 extern const std::string QUANTUM_STATE;
 /** Byze: optional XMSS index reservation during sign (uint32_t). */
@@ -273,6 +275,9 @@ public:
     bool EraseRecords(const std::unordered_set<std::string>& types);
 
     bool WriteWalletFlags(const uint64_t flags);
+    bool WriteWalletMnemonic(const std::vector<unsigned char>& data);
+    bool ReadWalletMnemonic(std::vector<unsigned char>& data);
+    bool EraseWalletMnemonic();
     //! Byze quantum wallet: opaque serialized record (plaintext or wallet-encrypted blob + metadata).
     bool WriteQuantumState(const std::vector<unsigned char>& data);
     bool ReadQuantumState(std::vector<unsigned char>& data);

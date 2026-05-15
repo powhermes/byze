@@ -453,6 +453,10 @@ private:
     /** Byze: 0 unknown / legacy v1 blob, 1 derived from descriptor HD master (deterministic with wallet seed). */
     uint8_t m_quantum_key_origin GUARDED_BY(cs_wallet){0};
 
+    /** Byze: BIP39 recovery phrase blob (plaintext or wallet-encrypted). */
+    std::vector<uint8_t> m_mnemonic_storage GUARDED_BY(cs_wallet);
+    bool m_mnemonic_is_encrypted GUARDED_BY(cs_wallet){false};
+
     //! Set of both spent and unspent transaction outputs owned by this wallet
     std::unordered_map<COutPoint, WalletTXO, SaltedOutpointHasher> m_txos GUARDED_BY(cs_wallet);
 
@@ -683,6 +687,13 @@ public:
 
     /** Byze: load quantum key records from the wallet database. */
     DBErrors LoadQuantumRecordsFromDatabase(DatabaseBatch& batch) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: load BIP39 mnemonic from the wallet database. */
+    DBErrors LoadMnemonicFromDatabase(DatabaseBatch& batch) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /**
+     * Byze: if wallet DB quantum keys match the taproot descriptor HD root, rewrite the record as v2 HD-origin.
+     * Never reads datadir quantum_wallet.keys (removed legacy path).
+     */
+    bool MaybeUpgradeQuantumStateToHdOrigin(WalletBatch& batch) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /**
      * Byze: derive and persist quantum keys from the same HD master used for taproot descriptors.
      * Skips if quantum state already exists unless overwrite_existing is true.
@@ -714,6 +725,11 @@ public:
     void WipeQuantumSecretsFromMemory() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: decrypt and load quantum manager after successful wallet unlock. */
     bool TryLoadQuantumManagerAfterUnlock() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: persist BIP39 mnemonic in wallet DB (encrypted if wallet is encrypted). */
+    bool PersistWalletMnemonic(WalletBatch& batch, const std::string& mnemonic) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool EncryptWalletMnemonicForWallet(const CKeyingMaterial& master_key, WalletBatch* batch) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool HasWalletMnemonic() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool GetWalletMnemonic(std::string& mnemonic_out) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: taproot destination for this wallet's quantum receive program (requires existing keys). */
     std::optional<CTxDestination> GetQuantumReceiveDestination() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 

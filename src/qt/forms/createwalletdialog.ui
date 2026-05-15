@@ -84,6 +84,19 @@
     </layout>
    </item>
    <item>
+    <widget class="QCheckBox" name="show_recovery_phrase_checkbox">
+     <property name="toolTip">
+      <string>After creation, display the 24-word BIP39 recovery phrase once. The phrase is also stored in wallet.dat for backup.</string>
+     </property>
+     <property name="text">
+      <string>Show recovery phrase after creation</string>
+     </property>
+     <property name="checked">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QCheckBox" name="encrypt_wallet_checkbox">
      <property name="toolTip">
       <string>Encrypt the wallet. The wallet will be encrypted with a passphrase of your choice.</string>

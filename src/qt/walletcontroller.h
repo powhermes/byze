@@ -134,6 +134,7 @@ private:
     void finish();
 
     SecureString m_passphrase;
+    bool m_show_recovery_phrase{false};
     CreateWalletDialog* m_create_wallet_dialog{nullptr};
     AskPassphraseDialog* m_passphrase_dialog{nullptr};
 };

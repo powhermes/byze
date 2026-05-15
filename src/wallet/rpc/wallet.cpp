@@ -70,6 +70,7 @@ static RPCHelpMan getwalletinfo()
                         {RPCResult::Type::BOOL, "quantum_hd_derived", "whether quantum keys are deterministically derived from the same BIP32 extended secret as the taproot descriptors"},
                         {RPCResult::Type::NUM, "quantum_record_format", /*optional=*/true, "on-disk quantum blob format version (1 legacy, 2 current); absent when no quantum state"},
                         {RPCResult::Type::STR, "quantum_recovery_note", "how quantum keys relate to HD / mnemonic recovery"},
+                        {RPCResult::Type::BOOL, "has_mnemonic", "whether a BIP39 recovery phrase is stored in this wallet database"},
                         RESULT_LAST_PROCESSED_BLOCK,
                     }},
                 },
@@ -146,10 +147,46 @@ static RPCHelpMan getwalletinfo()
     if (pwallet->HasQuantumReceiveProgram()) {
         obj.pushKV("quantum_record_format", static_cast<int>(pwallet->QuantumWalletBlobFormatVersion()));
     }
-    obj.pushKV("quantum_recovery_note", _("Quantum spend keys are derived from the wallet HD master (same extended secret as taproot descriptors). Backup wallet.dat, or export the same descriptors / compatible mnemonic material that reproduces this xprv; the wallet encryption passphrase also encrypts the quantum blob.").original);
+    obj.pushKV("quantum_recovery_note", _("Quantum spend keys and taproot descriptors are fully contained in wallet.dat (sqlite). A BIP39 phrase is stored when the wallet was created with recovery words enabled; the wallet encryption passphrase also encrypts quantum and mnemonic blobs.").original);
+    obj.pushKV("has_mnemonic", pwallet->HasWalletMnemonic());
 
     AppendLastProcessedBlock(obj, *pwallet);
     return obj;
+},
+    };
+}
+
+static RPCHelpMan getrecoveryphrase()
+{
+    return RPCHelpMan{"getrecoveryphrase",
+                "\nReturns the wallet's BIP39 recovery phrase (requires an unlocked encrypted wallet, or an unencrypted wallet).\n"
+                "The phrase is stored in wallet.dat; backing up wallet.dat alone is sufficient for full recovery including quantum keys.\n",
+                {},
+                RPCResult{
+                    RPCResult::Type::OBJ, "", "",
+                    {
+                        {RPCResult::Type::STR, "mnemonic", "space-separated 24-word BIP39 phrase"},
+                    }},
+                RPCExamples{
+                    HelpExampleCli("getrecoveryphrase", "")
+            + HelpExampleRpc("getrecoveryphrase", "")
+                },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+{
+    const std::shared_ptr<const CWallet> pwallet = GetWalletForJSONRPCRequest(request);
+    if (!pwallet) return UniValue::VNULL;
+
+    LOCK(pwallet->cs_wallet);
+    if (!pwallet->HasWalletMnemonic()) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Wallet has no stored recovery phrase");
+    }
+    std::string mnemonic;
+    if (!pwallet->GetWalletMnemonic(mnemonic)) {
+        throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED, "Wallet must be unlocked to read the recovery phrase");
+    }
+    UniValue ret(UniValue::VOBJ);
+    ret.pushKV("mnemonic", mnemonic);
+    return ret;
 },
     };
 }
@@ -953,6 +990,7 @@ std::span<const CRPCCommand> GetWalletRPCCommands()
         {"wallet", &gettransaction},
         {"wallet", &getbalances},
         {"wallet", &getwalletinfo},
+        {"wallet", &getrecoveryphrase},
         {"wallet", &importdescriptors},
         {"wallet", &importprunedfunds},
         {"wallet", &keypoolrefill},

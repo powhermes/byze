@@ -157,7 +157,49 @@ DBErrors CWallet::LoadQuantumRecordsFromDatabase(DatabaseBatch& batch)
     if (!batch.Read(DBKeys::QUANTUM_STATE, raw) || raw.empty()) {
         return DBErrors::LOAD_OK;
     }
-    return ApplyQuantumStateFromPackedBlob(raw);
+    const DBErrors err = ApplyQuantumStateFromPackedBlob(raw);
+    if (err != DBErrors::LOAD_OK) {
+        return err;
+    }
+    if (m_quantum_key_origin != QUANTUM_ORIGIN_HD_MASTER && !m_quantum_secret_is_encrypted) {
+        WalletBatch wb(GetDatabase());
+        if (!MaybeUpgradeQuantumStateToHdOrigin(wb)) {
+            WalletLogPrintf("%s: legacy quantum record (origin=%u); datadir quantum_wallet.keys is not used\n",
+                __func__, m_quantum_key_origin);
+        }
+    }
+    return DBErrors::LOAD_OK;
+}
+
+bool CWallet::MaybeUpgradeQuantumStateToHdOrigin(WalletBatch& batch)
+{
+    AssertLockHeld(cs_wallet);
+    if (m_quantum_key_origin == QUANTUM_ORIGIN_HD_MASTER) {
+        return true;
+    }
+    if (!m_quantum_program_bytes.has_value()) {
+        return true;
+    }
+    const std::optional<CExtKey> master = TryGetTaprootDescriptorRootExtKey();
+    if (!master) {
+        return false;
+    }
+
+    unsigned char ext_bytes[BIP32_EXTKEY_SIZE];
+    master->Encode(ext_bytes);
+    crypto::quantum_safe_manager derived;
+    if (!derived.generate_dual_keys_from_entropy_ikm(ext_bytes, BIP32_EXTKEY_SIZE) || !derived.ensure_modern_keys()) {
+        return false;
+    }
+    std::array<uint8_t, 32> derived_program{};
+    if (!ProgramFromManager(derived, derived_program)) {
+        return false;
+    }
+    if (derived_program != *m_quantum_program_bytes) {
+        WalletLogPrintf("%s: wallet DB quantum program does not match descriptor HD root; keeping legacy in-wallet keys\n", __func__);
+        return false;
+    }
+    return PersistQuantumKeyMaterialFromHdMaster(batch, *master, /*overwrite_existing=*/true);
 }
 
 bool CWallet::PersistQuantumKeyMaterialFromHdMaster(WalletBatch& batch, const CExtKey& master_key, bool overwrite_existing)

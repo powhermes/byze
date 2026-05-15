@@ -4,6 +4,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <wallet/wallet.h>
+#include <wallet/bip39.h>
 #include <wallet/walletquantum.h>
 
 #include <bitcoin-build-config.h> // IWYU pragma: keep
@@ -810,6 +811,13 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
         }
 
         if (!EncryptQuantumKeysForWallet(plain_master_key, encrypted_batch)) {
+            encrypted_batch->TxnAbort();
+            delete encrypted_batch;
+            encrypted_batch = nullptr;
+            assert(false);
+        }
+
+        if (!EncryptWalletMnemonicForWallet(plain_master_key, encrypted_batch)) {
             encrypted_batch->TxnAbort();
             delete encrypted_batch;
             encrypted_batch = nullptr;
@@ -3354,6 +3362,10 @@ bool CWallet::Unlock(const CKeyingMaterial& vMasterKeyIn)
         if (!TryLoadQuantumManagerAfterUnlock()) {
             return false;
         }
+        {
+            WalletBatch upgrade_batch(GetDatabase());
+            MaybeUpgradeQuantumStateToHdOrigin(upgrade_batch);
+        }
     }
     NotifyStatusChanged(this);
     return true;
@@ -3581,16 +3593,23 @@ void CWallet::SetupOwnDescriptorScriptPubKeyMans(WalletBatch& batch)
 {
     AssertLockHeld(cs_wallet);
     assert(!IsWalletFlagSet(WALLET_FLAG_EXTERNAL_SIGNER));
-    // Make a seed
-    CKey seed_key = GenerateRandomKey();
+    // HD root entropy: 32 random bytes, encoded as BIP39 for optional paper backup.
+    uint8_t entropy[32];
+    GetStrongRandBytes(entropy);
+    const std::string mnemonic = EncodeMnemonic(std::span<const uint8_t, 32>(entropy));
+
+    CKey seed_key;
+    seed_key.Set(entropy, entropy + 32, true);
     CPubKey seed = seed_key.GetPubKey();
     assert(seed_key.VerifyPubKey(seed));
 
-    // Get the extended key
     CExtKey master_key;
     master_key.SetSeed(seed_key);
 
     SetupDescriptorScriptPubKeyMans(batch, master_key);
+    if (!PersistWalletMnemonic(batch, mnemonic)) {
+        throw std::runtime_error(std::string(__func__) + ": failed to persist BIP39 recovery phrase");
+    }
 }
 
 void CWallet::SetupDescriptorScriptPubKeyMans()

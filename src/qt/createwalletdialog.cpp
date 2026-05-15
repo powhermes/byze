@@ -78,8 +78,10 @@ CreateWalletDialog::CreateWalletDialog(QWidget* parent) :
         // Disable the disable_privkeys_checkbox when blank_wallet_checkbox is checked
         // as blank-ness only pertains to wallets with private keys.
         ui->disable_privkeys_checkbox->setEnabled(!checked);
+        ui->show_recovery_phrase_checkbox->setEnabled(!checked);
         if (checked) {
             ui->disable_privkeys_checkbox->setChecked(false);
+            ui->show_recovery_phrase_checkbox->setChecked(false);
         }
     });
 
@@ -141,4 +143,9 @@ bool CreateWalletDialog::isMakeBlankWalletChecked() const
 bool CreateWalletDialog::isExternalSignerChecked() const
 {
     return ui->external_signer_checkbox->isChecked();
+}
+
+bool CreateWalletDialog::isShowRecoveryPhraseChecked() const
+{
+    return ui->show_recovery_phrase_checkbox->isChecked();
 }

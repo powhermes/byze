@@ -45,8 +45,14 @@
 #include <validationinterface.h>
 #include <versionbits.h>
 
+#include <crypto/quantum_safe.h>
+#include <crypto/quantum_safe_config.h>
+#include <node/mining_controller.h>
+#include <streams.h>
+
 #include <memory>
 #include <stdint.h>
+#include <thread>
 
 using node::BlockAssembler;
 using interfaces::BlockTemplate;
@@ -133,6 +139,9 @@ static RPCHelpMan getnetworkhashps()
     };
 }
 
+/** Attach quantum_signatures when mainnet policy requires them (shared by pool RPC and generate). */
+static bool MaybeSignBlockQuantum(CBlock& block, bool* quantum_signed_out = nullptr);
+
 static bool GenerateBlock(ChainstateManager& chainman, CBlock& block, uint64_t& max_tries, std::shared_ptr<const CBlock>& block_out, bool process_new_block)
 {
     block_out.reset();
@@ -147,6 +156,10 @@ static bool GenerateBlock(ChainstateManager& chainman, CBlock& block, uint64_t& 
     }
     if (block.nNonce == std::numeric_limits<uint32_t>::max()) {
         return true;
+    }
+
+    if (!MaybeSignBlockQuantum(block)) {
+        return false;
     }
 
     block_out = std::make_shared<const CBlock>(block);
@@ -467,8 +480,220 @@ static RPCHelpMan getmininginfo()
     obj.pushKV("pooledtx",         (uint64_t)mempool.size());
     obj.pushKV("chain", chainman.GetParams().GetChainTypeString());
     obj.pushKV("warnings", node::GetWarningsForRpc(*CHECK_NONFATAL(node.warnings), IsDeprecatedRPCEnabled("warnings")));
+
+    if (node.mining_controller) {
+        const node::MiningController::MiningStats stats = node.mining_controller->GetStats();
+        obj.pushKV("mining_active", stats.active);
+        if (stats.active) {
+            obj.pushKV("mining_address", stats.address);
+            obj.pushKV("blocks_found", stats.blocks_found);
+            obj.pushKV("hashrate", stats.hashrate);
+            obj.pushKV("hashes_tried", stats.hashes_tried);
+        }
+    } else {
+        obj.pushKV("mining_active", false);
+    }
     return obj;
 },
+    };
+}
+
+static node::MiningController& EnsureMiningController(const node::NodeContext& node)
+{
+    if (!node.mining_controller) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Mining controller not initialized");
+    }
+    return *node.mining_controller;
+}
+
+/** Attach quantum_signatures when mainnet policy requires them (shared by pool RPC and generate). */
+static bool MaybeSignBlockQuantum(CBlock& block, bool* quantum_signed_out)
+{
+    if (quantum_signed_out) *quantum_signed_out = false;
+    block.quantum_signatures.SetNull();
+
+    const bool is_mainnet{!Params().IsTestChain()};
+    const bool enforce{gArgs.GetBoolArg("-enforcequantumblocksigs", false)};
+    const bool require_quantum{is_mainnet || enforce};
+    const bool is_genesis{block.GetHash() == Params().GetConsensus().hashGenesisBlock};
+    if (!require_quantum || is_genesis) {
+        return true;
+    }
+
+    crypto::quantum_safe_manager qmgr;
+    if (!qmgr.ensure_modern_keys(BYZE_DEFAULT_XMSS_TREE_HEIGHT, BYZE_DEFAULT_SPHINCS_LEVEL)) {
+        return false;
+    }
+    const uint256 block_hash{block.GetHash()};
+    std::vector<uint8_t> xmss_sig = qmgr.sign(block_hash, crypto::quantum_algorithm::XMSS);
+    std::vector<uint8_t> sphincs_sig = qmgr.sign(block_hash, crypto::quantum_algorithm::SPHINCS_PLUS);
+    if (xmss_sig.size() != BYZE_XMSS_SIGNATURE_SIZE || sphincs_sig.size() != BYZE_SPHINCS_SIGNATURE_SIZE) {
+        return false;
+    }
+    block.quantum_signatures.xmss_signature = std::move(xmss_sig);
+    block.quantum_signatures.sphincs_signature = std::move(sphincs_sig);
+    block.quantum_signatures.dual_public_key = qmgr.get_dual_public_key_bundle();
+    if (quantum_signed_out) *quantum_signed_out = true;
+    return true;
+}
+
+static RPCHelpMan startmining()
+{
+    return RPCHelpMan{
+        "startmining",
+        "\nStart in-process solo CPU mining (RandomX) to the given payout address.\n",
+        {
+            {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "Payout address for coinbase rewards"},
+            {"threads", RPCArg::Type::NUM, RPCArg::Default{0}, "Number of mining threads (0 = auto-detect)"},
+        },
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::BOOL, "success", "true if mining started"},
+                {RPCResult::Type::STR, "address", "Mining payout address"},
+                {RPCResult::Type::NUM, "threads", "Number of worker threads"},
+            }},
+        RPCExamples{
+            HelpExampleCli("startmining", "\"byze1q...\" 4")
+            + HelpExampleRpc("startmining", "\"byze1q...\", 4")},
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            NodeContext& node = EnsureAnyNodeContext(request.context);
+            ChainstateManager& chainman = EnsureChainman(node);
+            {
+                LOCK(cs_main);
+                const CChain& chain = chainman.ActiveChain();
+                if (chain.Height() > 0 && chainman.IsInitialBlockDownload()) {
+                    throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD,
+                        "Cannot startmining while syncing (allowed at genesis height 0)");
+                }
+            }
+            node::MiningController& controller = EnsureMiningController(node);
+            const std::string address = request.params[0].get_str();
+            int threads = 0;
+            if (request.params.size() > 1) {
+                threads = request.params[1].getInt<int>();
+            }
+            if (controller.IsMining()) {
+                throw JSONRPCError(RPC_MISC_ERROR, "Mining is already active; call stopmining first");
+            }
+            if (!controller.StartMining(address, threads)) {
+                throw JSONRPCError(RPC_MISC_ERROR, "Failed to start mining (invalid address or RandomX init failure)");
+            }
+            const unsigned int hw = std::max(1u, std::thread::hardware_concurrency());
+            const int effective_threads = threads > 0 ? threads : static_cast<int>(hw);
+            UniValue ret(UniValue::VOBJ);
+            ret.pushKV("success", true);
+            ret.pushKV("address", address);
+            ret.pushKV("threads", effective_threads);
+            return ret;
+        },
+    };
+}
+
+static RPCHelpMan stopmining()
+{
+    return RPCHelpMan{
+        "stopmining",
+        "\nStop in-process solo CPU mining started with startmining.\n",
+        {},
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::BOOL, "success", "true if mining was stopped or was not running"},
+            }},
+        RPCExamples{
+            HelpExampleCli("stopmining", "")
+            + HelpExampleRpc("stopmining", "")},
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            NodeContext& node = EnsureAnyNodeContext(request.context);
+            node::MiningController& controller = EnsureMiningController(node);
+            controller.StopMining();
+            UniValue ret(UniValue::VOBJ);
+            ret.pushKV("success", true);
+            return ret;
+        },
+    };
+}
+
+static RPCHelpMan getminingstatus()
+{
+    return RPCHelpMan{
+        "getminingstatus",
+        "\nReturns solo in-process mining status (see also getmininginfo).\n",
+        {},
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::BOOL, "active", "Whether solo mining is running"},
+                {RPCResult::Type::STR, "address", /*optional=*/true, "Payout address when active"},
+                {RPCResult::Type::NUM, "blocks_found", "Blocks found since start"},
+                {RPCResult::Type::NUM, "hashrate", "Estimated hashes per second"},
+                {RPCResult::Type::NUM, "hashes_tried", "Total hashes tried"},
+            }},
+        RPCExamples{
+            HelpExampleCli("getminingstatus", "")
+            + HelpExampleRpc("getminingstatus", "")},
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            NodeContext& node = EnsureAnyNodeContext(request.context);
+            if (!node.mining_controller) {
+                UniValue ret(UniValue::VOBJ);
+                ret.pushKV("active", false);
+                return ret;
+            }
+            const node::MiningController::MiningStats stats = node.mining_controller->GetStats();
+            UniValue ret(UniValue::VOBJ);
+            ret.pushKV("active", stats.active);
+            if (stats.active) {
+                ret.pushKV("address", stats.address);
+            }
+            ret.pushKV("blocks_found", stats.blocks_found);
+            ret.pushKV("hashrate", stats.hashrate);
+            ret.pushKV("hashes_tried", stats.hashes_tried);
+            return ret;
+        },
+    };
+}
+
+static RPCHelpMan signpoolblock()
+{
+    return RPCHelpMan{
+        "signpoolblock",
+        "Accepts a hex-encoded CBlock from an external pool/miner, verifies RandomX proof-of-work on the header,\n"
+        "and when required by network policy attaches XMSS + SPHINCS+ signatures over CBlockHeader::GetHash().\n"
+        "Returns fully serialized block hex suitable for submitblock.\n",
+        {
+            {"hexdata", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "witness-serialized block hex (empty quantum tail is ok)"},
+        },
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR_HEX, "hex", "serialized block including quantum_signatures when required"},
+                {RPCResult::Type::STR_HEX, "hash", "header PoW hash (RandomX)"},
+                {RPCResult::Type::BOOL, "quantum_signed", "true if quantum fields were populated"},
+            }},
+        RPCExamples{
+            HelpExampleCli("signpoolblock", "\"<hex>\"")
+            + HelpExampleRpc("signpoolblock", "\"<hex>\"")},
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            CBlock block;
+            if (!DecodeHexBlk(block, request.params[0].get_str())) {
+                throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block decode failed");
+            }
+            if (!CheckProofOfWork(block.GetHash(), block.nBits, Params().GetConsensus())) {
+                throw JSONRPCError(RPC_VERIFY_ERROR, "Block proof-of-work is invalid");
+            }
+            bool quantum_signed{false};
+            if (!MaybeSignBlockQuantum(block, &quantum_signed)) {
+                throw JSONRPCError(RPC_MISC_ERROR, "Failed to attach required quantum block signatures");
+            }
+            DataStream block_ser;
+            block_ser << TX_WITH_WITNESS(block);
+            UniValue ret(UniValue::VOBJ);
+            ret.pushKV("hex", HexStr(block_ser));
+            ret.pushKV("hash", block.GetHash().GetHex());
+            ret.pushKV("quantum_signed", quantum_signed);
+            return ret;
+        },
     };
 }
 
@@ -1117,8 +1342,12 @@ void RegisterMiningRPCCommands(CRPCTable& t)
         {"mining", &prioritisetransaction},
         {"mining", &getprioritisedtransactions},
         {"mining", &getblocktemplate},
+        {"mining", &signpoolblock},
         {"mining", &submitblock},
         {"mining", &submitheader},
+        {"mining", &startmining},
+        {"mining", &stopmining},
+        {"mining", &getminingstatus},
 
         {"hidden", &generatetoaddress},
         {"hidden", &generatetodescriptor},

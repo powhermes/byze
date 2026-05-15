@@ -367,6 +367,14 @@ void BitcoinGUI::createActions()
     showHelpMessageAction->setMenuRole(QAction::NoRole);
     showHelpMessageAction->setStatusTip(tr("Show the %1 help message to get a list with possible Byze command-line options").arg(CLIENT_NAME));
 
+    showQuantumBackupHelpAction = new QAction(tr("Quantum &backup guide"), this);
+    showQuantumBackupHelpAction->setMenuRole(QAction::NoRole);
+    showQuantumBackupHelpAction->setStatusTip(tr("How wallet.dat backs up taproot descriptors and quantum keys"));
+
+    showSoloMiningHelpAction = new QAction(tr("Solo &mining guide"), this);
+    showSoloMiningHelpAction->setMenuRole(QAction::NoRole);
+    showSoloMiningHelpAction->setStatusTip(tr("How to use in-process solo mining and pool signing RPCs"));
+
     m_mask_values_action = new QAction(tr("&Mask values"), this);
     m_mask_values_action->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_M));
     m_mask_values_action->setStatusTip(tr("Mask the values in the Overview tab"));
@@ -377,6 +385,8 @@ void BitcoinGUI::createActions()
     connect(aboutQtAction, &QAction::triggered, qApp, QApplication::aboutQt);
     connect(optionsAction, &QAction::triggered, this, &BitcoinGUI::optionsClicked);
     connect(showHelpMessageAction, &QAction::triggered, this, &BitcoinGUI::showHelpMessageClicked);
+    connect(showQuantumBackupHelpAction, &QAction::triggered, this, &BitcoinGUI::showQuantumBackupHelpClicked);
+    connect(showSoloMiningHelpAction, &QAction::triggered, this, &BitcoinGUI::showSoloMiningHelpClicked);
     connect(openRPCConsoleAction, &QAction::triggered, this, &BitcoinGUI::showDebugWindow);
     // prevents an open debug window from becoming stuck/unusable on client shutdown
     connect(quitAction, &QAction::triggered, rpcConsole, &QWidget::hide);
@@ -585,6 +595,10 @@ void BitcoinGUI::createMenuBar()
 
     QMenu *help = appMenuBar->addMenu(tr("&Help"));
     help->addAction(showHelpMessageAction);
+    help->addAction(openRPCConsoleAction);
+    help->addSeparator();
+    help->addAction(showQuantumBackupHelpAction);
+    help->addAction(showSoloMiningHelpAction);
     help->addSeparator();
     help->addAction(aboutAction);
     help->addAction(aboutQtAction);
@@ -967,6 +981,29 @@ void BitcoinGUI::showDebugWindowActivateConsole()
 void BitcoinGUI::showHelpMessageClicked()
 {
     GUIUtil::bringToFront(helpMessageDialog);
+}
+
+void BitcoinGUI::showQuantumBackupHelpClicked()
+{
+    QMessageBox::information(this, tr("Quantum backup guide"),
+        tr("Byze stores taproot descriptors, XMSS/SPHINCS+ quantum keys, and an optional BIP39 recovery phrase inside wallet.dat (sqlite format).\n\n"
+           "Backing up or copying wallet.dat alone is sufficient to restore the wallet on another node. "
+           "If the wallet is encrypted, you also need the wallet passphrase.\n\n"
+           "Quantum spend keys are derived deterministically from the same HD master as descriptors. "
+           "Use getrecoveryphrase (RPC) or the wallet creation dialog to view the recovery words."));
+}
+
+void BitcoinGUI::showSoloMiningHelpClicked()
+{
+    QMessageBox::information(this, tr("Solo mining guide"),
+        tr("In-process solo CPU mining:\n"
+           "  startmining \"address\" [threads]\n"
+           "  stopmining\n"
+           "  getminingstatus / getmininginfo\n\n"
+           "External pool mining:\n"
+           "  signpoolblock \"hex\" — attach quantum signatures to a pool-built block\n"
+           "  submitblock \"hex\"\n\n"
+           "The Mining panel on Overview uses startmining when synced."));
 }
 
 #ifdef ENABLE_WALLET
