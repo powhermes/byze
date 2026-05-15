@@ -129,12 +129,17 @@ Q_SIGNALS:
     void created(WalletModel* wallet_model);
 
 private:
-    void askPassphrase();
     void createWallet();
     void finish();
+    void completeFinish();
+    void showRecoveryPhrase();
+    void proceedAfterRecoveryPhrase();
+    void askEncryptionPassphrase();
+    void encryptCreatedWallet();
 
     SecureString m_passphrase;
     bool m_show_recovery_phrase{false};
+    bool m_want_encrypt{false};
     CreateWalletDialog* m_create_wallet_dialog{nullptr};
     AskPassphraseDialog* m_passphrase_dialog{nullptr};
 };

@@ -420,6 +420,9 @@ static RPCHelpMan createwallet()
             RPCResult::Type::OBJ, "", "",
             {
                 {RPCResult::Type::STR, "name", "The wallet name if created successfully. If the wallet was created using a full path, the wallet_name will be the full path."},
+                {RPCResult::Type::STR, "mnemonic", /*optional=*/true, "24-word BIP39 recovery phrase (only when wallet created unencrypted)"},
+                {RPCResult::Type::STR, "mnemonic_warning", /*optional=*/true, "Backup instructions when mnemonic is returned"},
+                {RPCResult::Type::STR, "mnemonic_note", /*optional=*/true, "Note when wallet was created encrypted"},
                 {RPCResult::Type::ARR, "warnings", /*optional=*/true, "Warning messages, if any, related to creating and loading the wallet.",
                 {
                     {RPCResult::Type::STR, "", ""},
@@ -486,6 +489,20 @@ static RPCHelpMan createwallet()
     UniValue obj(UniValue::VOBJ);
     obj.pushKV("name", wallet->GetName());
     PushWarnings(warnings, obj);
+
+    LOCK(wallet->cs_wallet);
+    if (passphrase.empty() && wallet->HasWalletMnemonic()) {
+        std::string mnemonic;
+        if (wallet->GetWalletMnemonic(mnemonic)) {
+            obj.pushKV("mnemonic", mnemonic);
+            obj.pushKV("mnemonic_warning",
+                "Write down this 24-word recovery phrase and store it safely. It is also stored in wallet.dat. "
+                "This is not your wallet encryption passphrase. Back up wallet.dat as well.");
+        }
+    } else if (!passphrase.empty()) {
+        obj.pushKV("mnemonic_note",
+            "Wallet was created encrypted. Unlock the wallet and use getrecoveryphrase to view the recovery phrase.");
+    }
 
     return obj;
 },

@@ -145,7 +145,7 @@ bool CreateWalletDialog::isExternalSignerChecked() const
     return ui->external_signer_checkbox->isChecked();
 }
 
-bool CreateWalletDialog::isShowRecoveryPhraseChecked() const
+bool CreateWalletDialog::isGenerateRecoveryPhraseChecked() const
 {
     return ui->show_recovery_phrase_checkbox->isChecked();
 }

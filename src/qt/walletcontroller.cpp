@@ -9,6 +9,7 @@
 #include <qt/createwalletdialog.h>
 #include <qt/guiconstants.h>
 #include <qt/guiutil.h>
+#include <qt/recoveryphrasedialog.h>
 #include <qt/walletmodel.h>
 
 #include <external_signer.h>
@@ -36,6 +37,20 @@ using wallet::WALLET_FLAG_BLANK_WALLET;
 using wallet::WALLET_FLAG_DESCRIPTORS;
 using wallet::WALLET_FLAG_DISABLE_PRIVATE_KEYS;
 using wallet::WALLET_FLAG_EXTERNAL_SIGNER;
+
+namespace {
+
+QString RpcErrorMessage(const UniValue& error)
+{
+    std::string msg = "RPC error";
+    if (error.isObject()) {
+        const UniValue& message = error.find_value("message");
+        if (message.isStr()) msg = message.get_str();
+    }
+    return QString::fromStdString(msg);
+}
+
+} // namespace
 
 WalletController::WalletController(ClientModel& client_model, const PlatformStyle* platform_style, QObject* parent)
     : QObject(parent)
@@ -227,9 +242,10 @@ CreateWalletActivity::~CreateWalletActivity()
     delete m_passphrase_dialog;
 }
 
-void CreateWalletActivity::askPassphrase()
+void CreateWalletActivity::askEncryptionPassphrase()
 {
-    m_passphrase_dialog = new AskPassphraseDialog(AskPassphraseDialog::Encrypt, m_parent_widget, &m_passphrase);
+    m_passphrase.clear();
+    m_passphrase_dialog = new AskPassphraseDialog(AskPassphraseDialog::EncryptNewWallet, m_parent_widget, &m_passphrase);
     m_passphrase_dialog->setWindowModality(Qt::ApplicationModal);
     m_passphrase_dialog->show();
 
@@ -237,11 +253,74 @@ void CreateWalletActivity::askPassphrase()
         m_passphrase_dialog = nullptr;
     });
     connect(m_passphrase_dialog, &QDialog::accepted, [this] {
-        createWallet();
+        encryptCreatedWallet();
     });
     connect(m_passphrase_dialog, &QDialog::rejected, [this] {
-        Q_EMIT finished();
+        completeFinish();
     });
+}
+
+void CreateWalletActivity::encryptCreatedWallet()
+{
+    if (!m_wallet_model) {
+        completeFinish();
+        return;
+    }
+    if (!m_wallet_model->setWalletEncrypted(m_passphrase)) {
+        QMessageBox::critical(m_parent_widget, tr("Wallet encryption failed"),
+            tr("The wallet was created but could not be encrypted. It remains unencrypted."));
+    }
+    completeFinish();
+}
+
+void CreateWalletActivity::showRecoveryPhrase()
+{
+    if (!m_wallet_model) {
+        proceedAfterRecoveryPhrase();
+        return;
+    }
+
+    QString mnemonic;
+    try {
+        UniValue params(UniValue::VARR);
+        const UniValue result = node().executeRpc(
+            "getrecoveryphrase", params, m_wallet_model->getWalletName().toStdString());
+        if (result.isObject() && result.exists("mnemonic") && result["mnemonic"].isStr()) {
+            mnemonic = QString::fromStdString(result["mnemonic"].get_str());
+        }
+    } catch (const UniValue& e) {
+        QMessageBox::warning(m_parent_widget, tr("Recovery phrase"),
+            tr("Could not read recovery phrase: %1").arg(RpcErrorMessage(e)));
+        proceedAfterRecoveryPhrase();
+        return;
+    } catch (const std::exception& e) {
+        QMessageBox::warning(m_parent_widget, tr("Recovery phrase"),
+            tr("Could not read recovery phrase: %1").arg(QString::fromStdString(e.what())));
+        proceedAfterRecoveryPhrase();
+        return;
+    }
+
+    if (mnemonic.isEmpty()) {
+        proceedAfterRecoveryPhrase();
+        return;
+    }
+
+    auto* phrase_dialog = new RecoveryPhraseDialog(mnemonic, m_parent_widget);
+    phrase_dialog->setAttribute(Qt::WA_DeleteOnClose);
+    phrase_dialog->setWindowModality(Qt::ApplicationModal);
+    phrase_dialog->show();
+
+    connect(phrase_dialog, &QDialog::accepted, this, &CreateWalletActivity::proceedAfterRecoveryPhrase);
+    connect(phrase_dialog, &QDialog::rejected, this, &CreateWalletActivity::proceedAfterRecoveryPhrase);
+}
+
+void CreateWalletActivity::proceedAfterRecoveryPhrase()
+{
+    if (m_want_encrypt) {
+        askEncryptionPassphrase();
+    } else {
+        completeFinish();
+    }
 }
 
 void CreateWalletActivity::createWallet()
@@ -268,7 +347,8 @@ void CreateWalletActivity::createWallet()
     }
 
     QTimer::singleShot(500ms, worker(), [this, name, flags] {
-        auto wallet{node().walletLoader().createWallet(name, m_passphrase, flags, m_warning_message)};
+        SecureString empty_passphrase;
+        auto wallet{node().walletLoader().createWallet(name, empty_passphrase, flags, m_warning_message)};
 
         if (wallet) {
             m_wallet_model = m_wallet_controller->getOrCreateWallet(std::move(*wallet));
@@ -284,31 +364,29 @@ void CreateWalletActivity::finish()
 {
     if (!m_error_message.empty()) {
         QMessageBox::critical(m_parent_widget, tr("Create wallet failed"), QString::fromStdString(m_error_message.translated));
-    } else if (!m_warning_message.empty()) {
+        completeFinish();
+        return;
+    }
+    if (!m_warning_message.empty()) {
         QMessageBox::warning(m_parent_widget, tr("Create wallet warning"), QString::fromStdString(Join(m_warning_message, Untranslated("\n")).translated));
-    } else if (m_wallet_model && m_show_recovery_phrase) {
-        try {
-            UniValue params(UniValue::VARR);
-            const UniValue result = node().executeRpc(
-                "getrecoveryphrase", params, m_wallet_model->getWalletName().toStdString());
-            if (result.isObject() && result.exists("mnemonic")) {
-                QMessageBox box(m_parent_widget);
-                box.setIcon(QMessageBox::Warning);
-                box.setWindowTitle(tr("Wallet recovery phrase"));
-                box.setText(tr("Write down these 24 words and store them safely. "
-                               "They are also saved in wallet.dat; backing up wallet.dat is sufficient for full recovery."));
-                box.setDetailedText(QString::fromStdString(result["mnemonic"].get_str()));
-                box.setStandardButtons(QMessageBox::Ok);
-                box.exec();
-            }
-        } catch (const std::exception& e) {
-            QMessageBox::warning(m_parent_widget, tr("Recovery phrase"),
-                tr("Could not read recovery phrase: %1").arg(QString::fromStdString(e.what())));
-        }
     }
 
-    if (m_wallet_model) Q_EMIT created(m_wallet_model);
+    if (m_wallet_model && m_show_recovery_phrase) {
+        showRecoveryPhrase();
+        return;
+    }
 
+    if (m_wallet_model && m_want_encrypt) {
+        askEncryptionPassphrase();
+        return;
+    }
+
+    completeFinish();
+}
+
+void CreateWalletActivity::completeFinish()
+{
+    if (m_wallet_model) Q_EMIT created(m_wallet_model);
     Q_EMIT finished();
 }
 
@@ -338,15 +416,12 @@ void CreateWalletActivity::create()
         Q_EMIT finished();
     });
     connect(m_create_wallet_dialog, &QDialog::accepted, [this] {
-        m_show_recovery_phrase = m_create_wallet_dialog->isShowRecoveryPhraseChecked()
+        m_show_recovery_phrase = m_create_wallet_dialog->isGenerateRecoveryPhraseChecked()
             && !m_create_wallet_dialog->isMakeBlankWalletChecked()
             && !m_create_wallet_dialog->isDisablePrivateKeysChecked()
             && !m_create_wallet_dialog->isExternalSignerChecked();
-        if (m_create_wallet_dialog->isEncryptWalletChecked()) {
-            askPassphrase();
-        } else {
-            createWallet();
-        }
+        m_want_encrypt = m_create_wallet_dialog->isEncryptWalletChecked();
+        createWallet();
     });
 }
 

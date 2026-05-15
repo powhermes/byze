@@ -39,10 +39,21 @@ AskPassphraseDialog::AskPassphraseDialog(Mode _mode, QWidget *parent, SecureStri
     switch(mode)
     {
         case Encrypt: // Ask passphrase x2
-            ui->warningLabel->setText(tr("Enter the new passphrase for the wallet.<br/>Please use a passphrase of <b>ten or more random characters</b>, or <b>eight or more words</b>."));
+            ui->warningLabel->setText(tr("Enter a <b>wallet encryption passphrase</b> (local password for wallet.dat only).<br/>"
+                                         "This is <b>not</b> your 24-word recovery phrase.<br/>"
+                                         "Please use <b>ten or more random characters</b>, or <b>eight or more words</b>."));
             ui->passLabel1->hide();
             ui->passEdit1->hide();
             setWindowTitle(tr("Encrypt wallet"));
+            break;
+        case EncryptNewWallet:
+            ui->warningLabel->setText(tr("Optionally set a <b>wallet encryption passphrase</b> to lock wallet.dat on this device.<br/>"
+                                          "This is separate from your recovery phrase. If you lose this passphrase, "
+                                          "restore funds with your recovery phrase into a new wallet.<br/>"
+                                          "Use <b>ten or more random characters</b>, or <b>eight or more words</b>."));
+            ui->passLabel1->hide();
+            ui->passEdit1->hide();
+            setWindowTitle(tr("Wallet encryption passphrase"));
             break;
         case UnlockMigration:
         case Unlock: // Ask passphrase
@@ -81,7 +92,7 @@ void AskPassphraseDialog::setModel(WalletModel *_model)
 void AskPassphraseDialog::accept()
 {
     SecureString oldpass, newpass1, newpass2;
-    if (!model && mode != Encrypt && mode != UnlockMigration)
+    if (!model && mode != Encrypt && mode != EncryptNewWallet && mode != UnlockMigration)
         return;
     oldpass.reserve(MAX_PASSPHRASE_SIZE);
     newpass1.reserve(MAX_PASSPHRASE_SIZE);
@@ -95,15 +106,25 @@ void AskPassphraseDialog::accept()
 
     switch(mode)
     {
-    case Encrypt: {
+    case Encrypt:
+    case EncryptNewWallet: {
         if(newpass1.empty() || newpass2.empty())
         {
             // Cannot encrypt with empty passphrase
             break;
         }
+        const bool for_new_wallet = (mode == EncryptNewWallet);
+        const QString confirm_body = for_new_wallet
+            ? tr("This passphrase encrypts wallet.dat on this device only.<br><br>"
+                 "If you lose it, you cannot open this encrypted file — but you can still "
+                 "<b>restore your BYZE</b> using your 24-word recovery phrase in a new wallet.<br><br>"
+                 "Continue?")
+            : (tr("Warning: If you lose your wallet encryption passphrase, you cannot open this encrypted wallet.dat.<br>"
+                  "Your <b>24-word recovery phrase</b> (if backed up) can still restore your BYZE to a new wallet.") +
+               "<br><br>" + tr("Are you sure you wish to encrypt your wallet?"));
         QMessageBox msgBoxConfirm(QMessageBox::Question,
-                                  tr("Confirm wallet encryption"),
-                                  tr("Warning: If you encrypt your wallet and lose your passphrase, you will <b>LOSE ALL OF YOUR BITCOINS</b>!") + "<br><br>" + tr("Are you sure you wish to encrypt your wallet?"),
+                                  for_new_wallet ? tr("Confirm wallet passphrase") : tr("Confirm wallet encryption"),
+                                  confirm_body,
                                   QMessageBox::Cancel | QMessageBox::Yes, this);
         msgBoxConfirm.button(QMessageBox::Yes)->setText(tr("Continue"));
         msgBoxConfirm.button(QMessageBox::Cancel)->setText(tr("Back"));
@@ -113,22 +134,24 @@ void AskPassphraseDialog::accept()
         {
             if(newpass1 == newpass2)
             {
-                QString encryption_reminder = tr("Remember that encrypting your wallet cannot fully protect "
-                "your bitcoins from being stolen by malware infecting your computer.");
+                QString encryption_reminder = tr("Encrypting wallet.dat cannot fully protect "
+                "your BYZE from malware on this computer.");
                 if (m_passphrase_out) {
                     m_passphrase_out->assign(newpass1);
-                    QMessageBox msgBoxWarning(QMessageBox::Warning,
-                                              tr("Wallet to be encrypted"),
-                                              "<qt>" +
-                                                  tr("Your wallet is about to be encrypted. ") + encryption_reminder + " " +
-                                                  tr("Are you sure you wish to encrypt your wallet?") +
-                                                  "</b></qt>",
-                                              QMessageBox::Cancel | QMessageBox::Yes, this);
-                    msgBoxWarning.setDefaultButton(QMessageBox::Cancel);
-                    QMessageBox::StandardButton retval = (QMessageBox::StandardButton)msgBoxWarning.exec();
-                    if (retval == QMessageBox::Cancel) {
-                        QDialog::reject();
-                        return;
+                    if (!for_new_wallet) {
+                        QMessageBox msgBoxWarning(QMessageBox::Warning,
+                                                  tr("Wallet to be encrypted"),
+                                                  "<qt>" +
+                                                      tr("Your wallet is about to be encrypted. ") + encryption_reminder + " " +
+                                                      tr("Are you sure you wish to encrypt your wallet?") +
+                                                      "</b></qt>",
+                                                  QMessageBox::Cancel | QMessageBox::Yes, this);
+                        msgBoxWarning.setDefaultButton(QMessageBox::Cancel);
+                        QMessageBox::StandardButton retval = (QMessageBox::StandardButton)msgBoxWarning.exec();
+                        if (retval == QMessageBox::Cancel) {
+                            QDialog::reject();
+                            return;
+                        }
                     }
                 } else {
                     assert(model != nullptr);
@@ -227,6 +250,7 @@ void AskPassphraseDialog::textChanged()
     switch(mode)
     {
     case Encrypt: // New passphrase x2
+    case EncryptNewWallet:
         acceptable = !ui->passEdit2->text().isEmpty() && !ui->passEdit3->text().isEmpty();
         break;
     case UnlockMigration:
