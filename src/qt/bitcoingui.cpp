@@ -355,6 +355,10 @@ void BitcoinGUI::createActions()
     //: Status tip for Restore Wallet menu item
     m_restore_wallet_action->setStatusTip(tr("Restore a wallet from a backup file"));
 
+    m_restore_from_mnemonic_action = new QAction(tr("Restore Wallet from Recovery Phrase…"), this);
+    m_restore_from_mnemonic_action->setEnabled(false);
+    m_restore_from_mnemonic_action->setStatusTip(tr("Create a new wallet.dat from your 24-word recovery phrase"));
+
     m_close_all_wallets_action = new QAction(tr("Close All Wallets…"), this);
     m_close_all_wallets_action->setStatusTip(tr("Close all wallets"));
 
@@ -373,7 +377,7 @@ void BitcoinGUI::createActions()
 
     showSoloMiningHelpAction = new QAction(tr("Solo &mining guide"), this);
     showSoloMiningHelpAction->setMenuRole(QAction::NoRole);
-    showSoloMiningHelpAction->setStatusTip(tr("How to use in-process solo mining and pool signing RPCs"));
+    showSoloMiningHelpAction->setStatusTip(tr("In-process startmining vs Byze Miner for pools; RPC reference"));
 
     m_mask_values_action = new QAction(tr("&Mask values"), this);
     m_mask_values_action->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_M));
@@ -464,6 +468,12 @@ void BitcoinGUI::createActions()
             auto backup_file_path = fs::PathFromString(backup_file.toStdString());
             activity->restore(backup_file_path, wallet_name.toStdString());
         });
+        connect(m_restore_from_mnemonic_action, &QAction::triggered, [this] {
+            auto activity = new RestoreFromMnemonicActivity(m_wallet_controller, this);
+            connect(activity, &RestoreFromMnemonicActivity::restored, this, &BitcoinGUI::setCurrentWallet, Qt::QueuedConnection);
+            connect(activity, &RestoreFromMnemonicActivity::restored, rpcConsole, &RPCConsole::setCurrentWallet, Qt::QueuedConnection);
+            activity->restore();
+        });
         connect(m_close_wallet_action, &QAction::triggered, [this] {
             m_wallet_controller->closeWallet(walletFrame->currentWalletModel(), this);
         });
@@ -522,6 +532,7 @@ void BitcoinGUI::createMenuBar()
         file->addSeparator();
         file->addAction(backupWalletAction);
         file->addAction(m_restore_wallet_action);
+        file->addAction(m_restore_from_mnemonic_action);
         file->addSeparator();
         file->addAction(openAction);
         file->addAction(signMessageAction);
@@ -739,6 +750,7 @@ void BitcoinGUI::setWalletController(WalletController* wallet_controller, bool s
     m_open_wallet_action->setEnabled(true);
     m_open_wallet_action->setMenu(m_open_wallet_menu);
     m_restore_wallet_action->setEnabled(true);
+    m_restore_from_mnemonic_action->setEnabled(true);
     m_migrate_wallet_action->setEnabled(true);
     m_migrate_wallet_action->setMenu(m_migrate_wallet_menu);
 
@@ -990,20 +1002,21 @@ void BitcoinGUI::showQuantumBackupHelpClicked()
            "Backing up or copying wallet.dat alone is sufficient to restore the wallet on another node. "
            "If the wallet is encrypted, you also need the wallet passphrase.\n\n"
            "Quantum spend keys are derived deterministically from the same HD master as descriptors. "
-           "Use getrecoveryphrase (RPC) or the wallet creation dialog to view the recovery words."));
+           "Use File → Restore Wallet from Recovery Phrase, getrecoveryphrase / restorefrommnemonic (RPC), or wallet creation to view the recovery words."));
 }
 
 void BitcoinGUI::showSoloMiningHelpClicked()
 {
     QMessageBox::information(this, tr("Solo mining guide"),
-        tr("In-process solo CPU mining:\n"
+        tr("In-process solo CPU mining (good for simple setups and the Overview Mining panel when synced):\n"
            "  startmining \"address\" [threads]\n"
            "  stopmining\n"
            "  getminingstatus / getmininginfo\n\n"
-           "External pool mining:\n"
+           "High-performance pooled mining uses the separate Byze Miner application talking to your node's RPC.\n\n"
+           "Pool-style signing on this node:\n"
            "  signpoolblock \"hex\" — attach quantum signatures to a pool-built block\n"
            "  submitblock \"hex\"\n\n"
-           "The Mining panel on Overview uses startmining when synced."));
+           "The Overview Mining panel calls startmining when the chain is synced."));
 }
 
 #ifdef ENABLE_WALLET

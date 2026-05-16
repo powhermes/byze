@@ -541,7 +541,8 @@ static RPCHelpMan startmining()
 {
     return RPCHelpMan{
         "startmining",
-        "\nStart in-process solo CPU mining (RandomX) to the given payout address.\n",
+        "Start in-process solo CPU mining (RandomX) to the given payout address.\n"
+        "For high-performance pooled mining, use the separate Byze Miner against pool endpoints.\n",
         {
             {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "Payout address for coinbase rewards"},
             {"threads", RPCArg::Type::NUM, RPCArg::Default{0}, "Number of mining threads (0 = auto-detect)"},
@@ -594,7 +595,7 @@ static RPCHelpMan stopmining()
 {
     return RPCHelpMan{
         "stopmining",
-        "\nStop in-process solo CPU mining started with startmining.\n",
+        "Stop in-process solo CPU mining started with startmining.\n",
         {},
         RPCResult{
             RPCResult::Type::OBJ, "", "",
@@ -619,7 +620,7 @@ static RPCHelpMan getminingstatus()
 {
     return RPCHelpMan{
         "getminingstatus",
-        "\nReturns solo in-process mining status (see also getmininginfo).\n",
+        "Returns solo in-process mining status (see also getmininginfo).\n",
         {},
         RPCResult{
             RPCResult::Type::OBJ, "", "",

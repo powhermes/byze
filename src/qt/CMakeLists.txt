@@ -191,6 +191,8 @@ if(ENABLE_WALLET)
       receiverequestdialog.h
       recoveryphrasedialog.cpp
       recoveryphrasedialog.h
+      restorewalletmnemonicdialog.cpp
+      restorewalletmnemonicdialog.h
       recentrequeststablemodel.cpp
       recentrequeststablemodel.h
       sendcoinsdialog.cpp

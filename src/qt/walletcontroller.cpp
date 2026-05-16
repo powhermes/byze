@@ -10,6 +10,7 @@
 #include <qt/guiconstants.h>
 #include <qt/guiutil.h>
 #include <qt/recoveryphrasedialog.h>
+#include <qt/restorewalletmnemonicdialog.h>
 #include <qt/walletmodel.h>
 
 #include <external_signer.h>
@@ -188,6 +189,18 @@ WalletModel* WalletController::getOrCreateWallet(std::unique_ptr<interfaces::Wal
     Q_EMIT walletAdded(wallet_model);
 
     return wallet_model;
+}
+
+WalletModel* WalletController::getWalletModel(const std::string& name) const
+{
+    QMutexLocker locker(&m_mutex);
+    const QString qname = QString::fromStdString(name);
+    for (WalletModel* wallet_model : m_wallets) {
+        if (wallet_model->getWalletName() == qname) {
+            return wallet_model;
+        }
+    }
+    return nullptr;
 }
 
 void WalletController::removeAndDeleteWallet(WalletModel* wallet_model)
@@ -536,6 +549,102 @@ void RestoreWalletActivity::finish()
     if (m_wallet_model) Q_EMIT restored(m_wallet_model);
 
     Q_EMIT finished();
+}
+
+RestoreFromMnemonicActivity::RestoreFromMnemonicActivity(WalletController* wallet_controller, QWidget* parent_widget)
+    : WalletControllerActivity(wallet_controller, parent_widget)
+{
+    m_passphrase.reserve(MAX_PASSPHRASE_SIZE);
+}
+
+void RestoreFromMnemonicActivity::askEncryptionPassphrase()
+{
+    m_passphrase.clear();
+    AskPassphraseDialog passphrase_dialog(AskPassphraseDialog::EncryptNewWallet, m_parent_widget, &m_passphrase);
+    passphrase_dialog.setWindowModality(Qt::ApplicationModal);
+    if (passphrase_dialog.exec() != QDialog::Accepted) {
+        Q_EMIT finished();
+        return;
+    }
+    runRestoreOnWorker();
+}
+
+void RestoreFromMnemonicActivity::runRestoreOnWorker()
+{
+    showProgressDialog(
+        tr("Restore Wallet"),
+        tr("Restoring Wallet <b>%1</b> from recovery phrase…").arg(QString::fromStdString(m_wallet_name).toHtmlEscaped()));
+
+    QTimer::singleShot(0, worker(), [this] {
+        try {
+            UniValue params(UniValue::VARR);
+            params.push_back(m_wallet_name);
+            params.push_back(m_mnemonic);
+            if (!m_passphrase.empty()) {
+                params.push_back(std::string(m_passphrase.c_str(), m_passphrase.size()));
+            }
+            node().executeRpc("restorefrommnemonic", params, "");
+            m_wallet_model = m_wallet_controller->getWalletModel(m_wallet_name);
+            if (!m_wallet_model) {
+                m_error_message = Untranslated("Wallet was restored but could not be selected in the GUI. Use Open Wallet.");
+            }
+        } catch (const UniValue& e) {
+            m_error_message = Untranslated(RpcErrorMessage(e).toStdString());
+        } catch (const std::exception& e) {
+            m_error_message = Untranslated(e.what());
+        }
+
+        QTimer::singleShot(0, this, &RestoreFromMnemonicActivity::finish);
+    });
+}
+
+void RestoreFromMnemonicActivity::finish()
+{
+    if (!m_error_message.empty()) {
+        QMessageBox::critical(m_parent_widget, tr("Restore wallet failed"),
+            QString::fromStdString(m_error_message.translated));
+    } else if (!m_warning_message.empty()) {
+        QMessageBox::warning(m_parent_widget, tr("Restore wallet warning"),
+            QString::fromStdString(Join(m_warning_message, Untranslated("\n")).translated));
+    } else {
+        QMessageBox::information(m_parent_widget, tr("Restore wallet"),
+            tr("Wallet restored from recovery phrase."));
+    }
+
+    if (m_wallet_model) Q_EMIT restored(m_wallet_model);
+
+    Q_EMIT finished();
+}
+
+void RestoreFromMnemonicActivity::restore()
+{
+    RestoreWalletMnemonicDialog dialog(m_parent_widget);
+    if (dialog.exec() != QDialog::Accepted) {
+        Q_EMIT finished();
+        return;
+    }
+
+    m_wallet_name = dialog.walletName().toStdString();
+    m_mnemonic = dialog.mnemonic().toStdString();
+    m_want_encrypt = dialog.encryptWalletChecked();
+
+    if (m_wallet_name.empty()) {
+        QMessageBox::warning(m_parent_widget, tr("Restore wallet"), tr("Wallet name is empty."));
+        Q_EMIT finished();
+        return;
+    }
+    if (m_mnemonic.empty()) {
+        QMessageBox::warning(m_parent_widget, tr("Restore wallet"), tr("Recovery phrase is empty."));
+        Q_EMIT finished();
+        return;
+    }
+
+    if (m_want_encrypt) {
+        askEncryptionPassphrase();
+    } else {
+        m_passphrase.clear();
+        runRestoreOnWorker();
+    }
 }
 
 void MigrateWalletActivity::migrate(const std::string& name)

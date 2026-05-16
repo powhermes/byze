@@ -59,6 +59,9 @@ public:
 
     WalletModel* getOrCreateWallet(std::unique_ptr<interfaces::Wallet> wallet);
 
+    //! Returns the loaded wallet model for \p name, or nullptr.
+    WalletModel* getWalletModel(const std::string& name) const;
+
     //! Returns all wallet names in the wallet dir mapped to whether the wallet
     //! is loaded.
     std::map<std::string, std::pair<bool, std::string>> listWalletDir() const;
@@ -184,6 +187,29 @@ Q_SIGNALS:
 
 private:
     void finish();
+};
+
+class RestoreFromMnemonicActivity : public WalletControllerActivity
+{
+    Q_OBJECT
+
+public:
+    RestoreFromMnemonicActivity(WalletController* wallet_controller, QWidget* parent_widget);
+
+    void restore();
+
+Q_SIGNALS:
+    void restored(WalletModel* wallet_model);
+
+private:
+    void askEncryptionPassphrase();
+    void runRestoreOnWorker();
+    void finish();
+
+    std::string m_wallet_name;
+    std::string m_mnemonic;
+    SecureString m_passphrase;
+    bool m_want_encrypt{false};
 };
 
 class MigrateWalletActivity : public WalletControllerActivity
