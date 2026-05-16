@@ -159,7 +159,7 @@ static RPCHelpMan getwalletinfo()
 static RPCHelpMan getrecoveryphrase()
 {
     return RPCHelpMan{"getrecoveryphrase",
-                "\nReturns the wallet's BIP39 recovery phrase (requires an unlocked encrypted wallet, or an unencrypted wallet).\n"
+                "Returns the wallet's BIP39 recovery phrase (requires an unlocked encrypted wallet, or an unencrypted wallet).\n"
                 "The phrase is stored in wallet.dat; backing up wallet.dat alone is sufficient for full recovery including quantum keys.\n",
                 {},
                 RPCResult{
@@ -503,6 +503,82 @@ static RPCHelpMan createwallet()
         obj.pushKV("mnemonic_note",
             "Wallet was created encrypted. Unlock the wallet and use getrecoveryphrase to view the recovery phrase.");
     }
+
+    return obj;
+},
+    };
+}
+
+static RPCHelpMan restorefrommnemonic()
+{
+    return RPCHelpMan{
+        "restorefrommnemonic",
+        "Creates and loads a descriptor wallet from a 24-word BIP39 recovery phrase.\n"
+        "Restores the same taproot descriptors and deterministic quantum keys as the original wallet, "
+        "then rescans the local blockchain for transactions.\n"
+        "The optional passphrase encrypts the new wallet.dat (it is not the BIP39 passphrase; Byze uses raw entropy from the phrase).\n",
+        {
+            {"wallet_name", RPCArg::Type::STR, RPCArg::Optional::NO, "The name for the restored wallet."},
+            {"mnemonic", RPCArg::Type::STR, RPCArg::Optional::NO, "Space-separated 24-word BIP39 recovery phrase."},
+            {"passphrase", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "If set, encrypt the restored wallet with this passphrase."},
+            {"load_on_startup", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Save wallet name to persistent settings and load on startup. True to add wallet to startup list, false to remove, null to leave unchanged."},
+        },
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR, "name", "The wallet name if restored successfully."},
+                {RPCResult::Type::BOOL, "quantum_hd_derived", "Whether quantum keys were derived from the restored HD master"},
+                {RPCResult::Type::BOOL, "has_mnemonic", "Whether the recovery phrase is stored in wallet.dat"},
+                {RPCResult::Type::ARR, "warnings", /*optional=*/true, "Warning messages, if any.",
+                {
+                    {RPCResult::Type::STR, "", ""},
+                }},
+            }
+        },
+        RPCExamples{
+            HelpExampleCli("restorefrommnemonic", "\"recovered\" \"word1 word2 ... word24\"")
+            + HelpExampleRpc("restorefrommnemonic", "\"recovered\", \"word1 word2 ... word24\"")
+            + HelpExampleCliNamed("restorefrommnemonic", {{"wallet_name", "recovered"}, {"mnemonic", "..."}, {"passphrase", "secret"}, {"load_on_startup", true}})
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+{
+    WalletContext& context = EnsureWalletContext(request.context);
+
+    SecureString passphrase;
+    passphrase.reserve(100);
+    if (request.params.size() > 2 && !request.params[2].isNull()) {
+        passphrase = std::string_view{request.params[2].get_str()};
+        if (passphrase.empty()) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Empty passphrase; omit the argument to leave the wallet unencrypted.");
+        }
+    }
+
+    std::optional<bool> load_on_start = request.params.size() > 3 && !request.params[3].isNull()
+        ? std::optional<bool>(request.params[3].get_bool()) : std::nullopt;
+
+    DatabaseStatus status;
+    bilingual_str error;
+    std::vector<bilingual_str> warnings;
+
+    const std::shared_ptr<CWallet> wallet = RestoreWalletFromMnemonic(
+        context,
+        request.params[0].get_str(),
+        request.params[1].get_str(),
+        load_on_start,
+        passphrase,
+        status,
+        error,
+        warnings);
+
+    HandleWalletError(wallet, status, error);
+
+    UniValue obj(UniValue::VOBJ);
+    obj.pushKV("name", wallet->GetName());
+    PushWarnings(warnings, obj);
+
+    LOCK(wallet->cs_wallet);
+    obj.pushKV("quantum_hd_derived", wallet->QuantumKeysDerivedFromWalletHd());
+    obj.pushKV("has_mnemonic", wallet->HasWalletMnemonic());
 
     return obj;
 },
@@ -994,6 +1070,7 @@ std::span<const CRPCCommand> GetWalletRPCCommands()
         {"wallet", &psbtbumpfee},
         {"wallet", &createwallet},
         {"wallet", &createwalletdescriptor},
+        {"wallet", &restorefrommnemonic},
         {"wallet", &restorewallet},
         {"wallet", &encryptwallet},
         {"wallet", &getaddressesbylabel},

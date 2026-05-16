@@ -463,6 +463,134 @@ std::shared_ptr<CWallet> CreateWallet(WalletContext& context, const std::string&
     return wallet;
 }
 
+namespace {
+
+bool RescanRestoredWallet(CWallet& wallet, bilingual_str& error)
+{
+    wallet.BlockUntilSyncedToCurrentChain();
+
+    WalletRescanReserver reserver(wallet);
+    if (!reserver.reserve(/*with_passphrase=*/true)) {
+        error = Untranslated("Wallet is currently rescanning");
+        return false;
+    }
+
+    int start_height = 0;
+    uint256 start_block;
+
+    {
+        LOCK(wallet.cs_wallet);
+        if (!wallet.chain().hasBlocks(wallet.GetLastBlockHash(), start_height, std::nullopt)) {
+            if (wallet.chain().havePruned() && wallet.chain().getPruneHeight() >= start_height) {
+                error = Untranslated("Can't rescan beyond pruned data. Use getblockchaininfo to determine your pruned height.");
+                return false;
+            }
+            error = Untranslated("Failed to rescan unavailable blocks");
+            return false;
+        }
+        if (!wallet.chain().findAncestorByHeight(wallet.GetLastBlockHash(), start_height, FoundBlock().hash(start_block))) {
+            error = Untranslated("Failed to find genesis block for rescan");
+            return false;
+        }
+    }
+
+    const CWallet::ScanResult result =
+        wallet.ScanForWalletTransactions(start_block, start_height, /*max_height=*/std::nullopt, reserver, /*fUpdate=*/true, /*save_progress=*/false);
+    switch (result.status) {
+    case CWallet::ScanResult::SUCCESS:
+        return true;
+    case CWallet::ScanResult::FAILURE:
+        error = Untranslated("Rescan failed. Potentially corrupted data files.");
+        return false;
+    case CWallet::ScanResult::USER_ABORT:
+        error = Untranslated("Rescan aborted.");
+        return false;
+    }
+    assert(false);
+}
+
+} // namespace
+
+std::shared_ptr<CWallet> RestoreWalletFromMnemonic(WalletContext& context, const std::string& name, const std::string& mnemonic, std::optional<bool> load_on_start, const SecureString& passphrase, DatabaseStatus& status, bilingual_str& error, std::vector<bilingual_str>& warnings)
+{
+    std::vector<uint8_t> entropy;
+    std::string decode_error;
+    if (!DecodeMnemonic(mnemonic, entropy, decode_error)) {
+        error = Untranslated(decode_error);
+        status = DatabaseStatus::FAILED_CREATE;
+        return nullptr;
+    }
+    if (entropy.size() != 32) {
+        error = Untranslated("Invalid mnemonic entropy length");
+        status = DatabaseStatus::FAILED_CREATE;
+        return nullptr;
+    }
+
+    DatabaseOptions options;
+    ReadDatabaseArgs(*context.args, options);
+    options.require_create = true;
+    options.require_format = DatabaseFormat::SQLITE;
+    options.create_flags = WALLET_FLAG_DESCRIPTORS | WALLET_FLAG_BLANK_WALLET;
+
+    std::unique_ptr<WalletDatabase> database = MakeWalletDatabase(name, options, status, error);
+    if (!database) {
+        error = Untranslated("Wallet file verification failed.") + Untranslated(" ") + error;
+        status = DatabaseStatus::FAILED_VERIFY;
+        return nullptr;
+    }
+
+    context.chain->initMessage(_("Loading wallet…"));
+    std::shared_ptr<CWallet> wallet = CWallet::Create(context, name, std::move(database), options.create_flags, error, warnings);
+    if (!wallet) {
+        error = Untranslated("Wallet creation failed.") + Untranslated(" ") + error;
+        status = DatabaseStatus::FAILED_CREATE;
+        return nullptr;
+    }
+
+    if (!passphrase.empty()) {
+        if (!wallet->EncryptWallet(passphrase)) {
+            error = Untranslated("Error: Wallet created but failed to encrypt.");
+            status = DatabaseStatus::FAILED_ENCRYPT;
+            return nullptr;
+        }
+        if (!wallet->Unlock(passphrase)) {
+            error = Untranslated("Error: Wallet was encrypted but could not be unlocked");
+            status = DatabaseStatus::FAILED_ENCRYPT;
+            return nullptr;
+        }
+    }
+
+    {
+        LOCK(wallet->cs_wallet);
+        if (!RunWithinTxn(wallet->GetDatabase(), /*process_desc=*/"restore mnemonic", [&](WalletBatch& batch) EXCLUSIVE_LOCKS_REQUIRED(wallet->cs_wallet) {
+                wallet->SetupDescriptorScriptPubKeyMansFromMnemonic(batch, mnemonic);
+                return true;
+            })) {
+            error = Untranslated("Failed to restore wallet from recovery phrase");
+            status = DatabaseStatus::FAILED_CREATE;
+            return nullptr;
+        }
+    }
+
+    if (!RescanRestoredWallet(*wallet, error)) {
+        status = DatabaseStatus::FAILED_CREATE;
+        return nullptr;
+    }
+
+    if (!passphrase.empty()) {
+        wallet->Lock();
+    }
+
+    NotifyWalletLoaded(context, wallet);
+    AddWallet(context, wallet);
+    wallet->postInitProcess();
+
+    UpdateWalletSetting(*context.chain, name, load_on_start, warnings);
+
+    status = DatabaseStatus::SUCCESS;
+    return wallet;
+}
+
 // Re-creates wallet from the backup file by renaming and moving it into the wallet's directory.
 // If 'load_after_restore=true', the wallet object will be fully initialized and appended to the context.
 std::shared_ptr<CWallet> RestoreWallet(WalletContext& context, const fs::path& backup_file, const std::string& wallet_name, std::optional<bool> load_on_start, DatabaseStatus& status, bilingual_str& error, std::vector<bilingual_str>& warnings, bool load_after_restore)
@@ -3608,6 +3736,42 @@ void CWallet::SetupOwnDescriptorScriptPubKeyMans(WalletBatch& batch)
 
     SetupDescriptorScriptPubKeyMans(batch, master_key);
     if (!PersistWalletMnemonic(batch, mnemonic)) {
+        throw std::runtime_error(std::string(__func__) + ": failed to persist BIP39 recovery phrase");
+    }
+}
+
+void CWallet::SetupDescriptorScriptPubKeyMansFromMnemonic(WalletBatch& batch, const std::string& mnemonic)
+{
+    AssertLockHeld(cs_wallet);
+    assert(!IsWalletFlagSet(WALLET_FLAG_EXTERNAL_SIGNER));
+    if (!m_spk_managers.empty()) {
+        throw std::runtime_error(std::string(__func__) + ": wallet already has keys");
+    }
+    if (HasWalletMnemonic() || HasQuantumReceiveProgram()) {
+        throw std::runtime_error(std::string(__func__) + ": wallet already initialized");
+    }
+
+    std::vector<uint8_t> entropy;
+    std::string error;
+    if (!DecodeMnemonic(mnemonic, entropy, error)) {
+        throw std::runtime_error(std::string(__func__) + ": " + error);
+    }
+    if (entropy.size() != 32) {
+        throw std::runtime_error(std::string(__func__) + ": invalid entropy length");
+    }
+
+    const std::string canonical_mnemonic = EncodeMnemonic(std::span<const uint8_t, 32>(entropy.data(), entropy.size()));
+
+    CKey seed_key;
+    seed_key.Set(entropy.data(), entropy.data() + entropy.size(), true);
+    CPubKey seed = seed_key.GetPubKey();
+    assert(seed_key.VerifyPubKey(seed));
+
+    CExtKey master_key;
+    master_key.SetSeed(seed_key);
+
+    SetupDescriptorScriptPubKeyMans(batch, master_key);
+    if (!PersistWalletMnemonic(batch, canonical_mnemonic)) {
         throw std::runtime_error(std::string(__func__) + ": failed to persist BIP39 recovery phrase");
     }
 }
