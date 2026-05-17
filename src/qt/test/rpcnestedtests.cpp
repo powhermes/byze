@@ -89,6 +89,10 @@ void RPCNestedTests::rpcNestedTests()
     QVERIFY(filtered == "createwallet(…)");
     RPCConsole::RPCParseCommandLine(nullptr, result, "createwalletdescriptor abc", false, &filtered);
     QVERIFY(filtered == "createwalletdescriptor(…)");
+    RPCConsole::RPCParseCommandLine(nullptr, result, "restorefrommnemonic name word1 word2", false, &filtered);
+    QVERIFY(filtered == "restorefrommnemonic(…)");
+    RPCConsole::RPCParseCommandLine(nullptr, result, "getrecoveryphrase", false, &filtered);
+    QVERIFY(filtered == "getrecoveryphrase(…)");
     RPCConsole::RPCParseCommandLine(nullptr, result, "migratewallet abc abc", false, &filtered);
     QVERIFY(filtered == "migratewallet(…)");
     RPCConsole::RPCParseCommandLine(nullptr, result, "signmessagewithprivkey abc", false, &filtered);

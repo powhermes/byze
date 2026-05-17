@@ -131,7 +131,17 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         help_text = miner.help()
         assert "getrecoveryphrase" in help_text
         assert "restorefrommnemonic" in help_text
+        assert "createwallet" in help_text
         assert "startmining" in help_text
+
+        hw = miner.helpwallet()
+        assert isinstance(hw, str) and len(hw) > 0
+        assert "restorefrommnemonic" in hw
+        assert "createwallet" in hw
+
+        assert "BIP39" in miner.help("createwallet")
+        assert "24-word" in miner.help("restorefrommnemonic")
+        assert "getrecoveryphrase" in miner.help("getrecoveryphrase")
 
 
 if __name__ == "__main__":

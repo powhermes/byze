@@ -74,6 +74,8 @@ namespace {
 const QStringList historyFilter = QStringList()
     << "createwallet"
     << "createwalletdescriptor"
+    << "restorefrommnemonic"
+    << "getrecoveryphrase"
     << "migratewallet"
     << "signmessagewithprivkey"
     << "signrawtransactionwithkey"
@@ -385,7 +387,17 @@ void RPCExecutor::request(const QString &command, const QString& wallet_name)
         std::string result;
         std::string executableCommand = command.toStdString() + "\n";
 
-        // Catch the console-only-help command before RPC call is executed and reply with help text as-if a RPC reply.
+        // Catch console-only / convenience help before RPC (helpwallet is also a normal RPC).
+        if (executableCommand == "help-wallet\n") {
+            try {
+                const UniValue result = m_node.executeRpc("helpwallet", UniValue::VARR, "");
+                const std::string text = result.isStr() ? result.get_str() : result.write(2);
+                Q_EMIT reply(RPCConsole::CMD_REPLY, QString::fromStdString(text));
+            } catch (const std::exception& e) {
+                Q_EMIT reply(RPCConsole::CMD_ERROR, QString("Error: ") + QString::fromStdString(e.what()));
+            }
+            return;
+        }
         if(executableCommand == "help-console\n") {
             Q_EMIT reply(RPCConsole::CMD_REPLY, QString(("\n"
                 "This console accepts RPC commands using the standard syntax.\n"
@@ -405,7 +417,13 @@ void RPCExecutor::request(const QString &command, const QString& wallet_name)
                 "   example:    getblock(getblockhash(0) 1)[tx]\n\n"
 
                 "Results without keys can be queried with an integer in brackets using the parenthesized syntax.\n"
-                "   example:    getblock(getblockhash(0),1)[tx][0]\n\n")));
+                "   example:    getblock(getblockhash(0),1)[tx][0]\n\n"
+
+                "Wallet creation and recovery:\n"
+                "   help-wallet   or   helpwallet\n"
+                "   help createwallet\n"
+                "   help restorefrommnemonic\n"
+                "   help getrecoveryphrase\n\n")));
             return;
         }
         if (!RPCConsole::RPCExecuteCommandLine(m_node, result, executableCommand, nullptr, wallet_name)) {
@@ -731,6 +749,7 @@ void RPCConsole::setClientModel(ClientModel *model, int bestblock_height, int64_
         }
 
         wordList << "help-console";
+        wordList << "help-wallet";
         wordList.sort();
         autoCompleter = new QCompleter(wordList, this);
         autoCompleter->setModelSorting(QCompleter::CaseSensitivelySortedModel);
@@ -868,6 +887,7 @@ void RPCConsole::clear(bool keep_prompt)
            "Use up and down arrows to navigate history, and %2 to clear screen.\n"
            "Use %3 and %4 to increase or decrease the font size.\n"
            "Type %5 for an overview of available commands.\n"
+           "For wallet creation and recovery help, type %9 or %10.\n"
            "For more information on using this console, type %6.\n"
            "\n"
            "%7WARNING: Scammers have been active, telling users to type"
@@ -879,6 +899,8 @@ void RPCConsole::clear(bool keep_prompt)
                  "<b>" + ui->fontSmallerButton->shortcut().toString(QKeySequence::NativeText) + "</b>",
                  "<b>help</b>",
                  "<b>help-console</b>",
+                 "<b>help-wallet</b>",
+                 "<b>helpwallet</b>",
                  "<span class=\"secwarning\">",
                  "<span>");
 

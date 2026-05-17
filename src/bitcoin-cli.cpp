@@ -158,6 +158,7 @@ static int AppInitRPC(int argc, char* argv[])
                 "The bitcoin-cli utility provides a command line interface to interact with a " CLIENT_NAME " RPC server.\n"
                 "\nIt can be used to query network information, manage wallets, create or broadcast transactions, and control the " CLIENT_NAME " server.\n"
                 "\nUse the \"help\" command to list all commands. Use \"help <command>\" to show help for that command.\n"
+                "Wallet creation/recovery: helpwallet, or help createwallet / help restorefrommnemonic / help getrecoveryphrase.\n"
                 "The -named option allows you to specify parameters using the key=value format, eliminating the need to pass unused positional parameters.\n"
                 "\n"
                 "Usage: bitcoin-cli [options] <command> [params]\n"

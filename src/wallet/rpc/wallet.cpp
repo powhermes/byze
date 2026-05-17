@@ -156,11 +156,48 @@ static RPCHelpMan getwalletinfo()
     };
 }
 
+static RPCHelpMan helpwallet()
+{
+    return RPCHelpMan{
+        "helpwallet",
+        "Quick reference for wallet creation and recovery RPCs. Use \"help <command>\" for full documentation.\n",
+        {},
+        RPCResult{RPCResult::Type::STR, "", "Summary help text"},
+        RPCExamples{
+            HelpExampleCli("helpwallet", "")
+            + HelpExampleRpc("helpwallet", "")
+            + HelpExampleCli("help", "createwallet")
+            + HelpExampleCli("help", "restorefrommnemonic")},
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+{
+    const std::string text{
+        "Wallet creation and recovery (Byze descriptor + quantum HD wallets):\n\n"
+        "  createwallet \"name\" [disable_private_keys] [blank] [passphrase] ...\n"
+        "      Create a new wallet. Returns a 24-word BIP39 mnemonic when created unencrypted.\n"
+        "      Optional passphrase encrypts wallet.dat only (not the seed phrase).\n\n"
+        "  restorefrommnemonic \"name\" \"24 words ...\" [passphrase] [load_on_startup]\n"
+        "      Recreate wallet.dat from a recovery phrase (same addresses and quantum keys).\n"
+        "      Rescans the blockchain. Optional passphrase encrypts the new wallet.\n\n"
+        "  getrecoveryphrase\n"
+        "      Show the stored recovery phrase (wallet must be loaded; unlock if encrypted).\n"
+        "      Use: byze-cli -rpcwallet=<name> getrecoveryphrase\n\n"
+        "  restorewallet \"name\" \"backup.dat\"\n"
+        "      Restore from a wallet.dat backup file (not from words alone).\n\n"
+        "  getwalletinfo\n"
+        "      Shows has_mnemonic, quantum_hd_derived, and related fields.\n\n"
+        "See also: encryptwallet, walletpassphrase, loadwallet, unloadwallet, listwallets.\n"
+        "Full help: help createwallet | help restorefrommnemonic | help getrecoveryphrase"};
+    return text;
+},
+    };
+}
+
 static RPCHelpMan getrecoveryphrase()
 {
     return RPCHelpMan{"getrecoveryphrase",
                 "Returns the wallet's BIP39 recovery phrase (requires an unlocked encrypted wallet, or an unencrypted wallet).\n"
-                "The phrase is stored in wallet.dat; backing up wallet.dat alone is sufficient for full recovery including quantum keys.\n",
+                "The phrase is stored in wallet.dat; backing up wallet.dat alone is sufficient for full recovery including quantum keys.\n"
+                "Requires the target wallet to be loaded (byze-cli -rpcwallet=<walletname> getrecoveryphrase).\n",
                 {},
                 RPCResult{
                     RPCResult::Type::OBJ, "", "",
@@ -405,12 +442,14 @@ static RPCHelpMan createwallet()
 {
     return RPCHelpMan{
         "createwallet",
-        "Creates and loads a new wallet.\n",
+        "Creates and loads a new descriptor wallet with a BIP39 recovery phrase and HD-derived quantum keys.\n"
+        "When created without a passphrase, the RPC result includes the 24-word mnemonic (also stored in wallet.dat).\n"
+        "The optional passphrase encrypts wallet.dat locally; it is not the recovery phrase.\n",
         {
             {"wallet_name", RPCArg::Type::STR, RPCArg::Optional::NO, "The name for the new wallet. If this is a path, the wallet will be created at the path location."},
             {"disable_private_keys", RPCArg::Type::BOOL, RPCArg::Default{false}, "Disable the possibility of private keys (only watchonlys are possible in this mode)."},
             {"blank", RPCArg::Type::BOOL, RPCArg::Default{false}, "Create a blank wallet. A blank wallet has no keys."},
-            {"passphrase", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Encrypt the wallet with this passphrase."},
+            {"passphrase", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Encrypt wallet.dat with this passphrase (wallet unlock passphrase, not the BIP39 phrase)."},
             {"avoid_reuse", RPCArg::Type::BOOL, RPCArg::Default{false}, "Keep track of coin reuse, and treat dirty and clean coins differently with privacy considerations in mind."},
             {"descriptors", RPCArg::Type::BOOL, RPCArg::Default{true}, "If set, must be \"true\""},
             {"load_on_startup", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Save wallet name to persistent settings and load on startup. True to add wallet to startup list, false to remove, null to leave unchanged."},
@@ -432,8 +471,10 @@ static RPCHelpMan createwallet()
         RPCExamples{
             HelpExampleCli("createwallet", "\"testwallet\"")
             + HelpExampleRpc("createwallet", "\"testwallet\"")
+            + HelpExampleCli("createwallet", "\"encrypted\" false false \"my wallet passphrase\"")
             + HelpExampleCliNamed("createwallet", {{"wallet_name", "descriptors"}, {"avoid_reuse", true}, {"load_on_startup", true}})
             + HelpExampleRpcNamed("createwallet", {{"wallet_name", "descriptors"}, {"avoid_reuse", true}, {"load_on_startup", true}})
+            + HelpExampleCliNamed("createwallet", {{"wallet_name", "secure"}, {"passphrase", "my wallet passphrase"}})
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
 {
@@ -1068,6 +1109,7 @@ std::span<const CRPCCommand> GetWalletRPCCommands()
         {"wallet", &backupwallet},
         {"wallet", &bumpfee},
         {"wallet", &psbtbumpfee},
+        {"wallet", &helpwallet},
         {"wallet", &createwallet},
         {"wallet", &createwalletdescriptor},
         {"wallet", &restorefrommnemonic},
