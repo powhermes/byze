@@ -7,6 +7,7 @@
 #include <hash.h>
 #include <wallet/bip39.h>
 #include <wallet/crypter.h>
+#include <wallet/wallet_mnemonic.h>
 #include <wallet/walletdb.h>
 
 namespace wallet {
@@ -15,6 +16,42 @@ namespace {
 static const uint256 g_mnemonic_wallet_iv = Hash(std::string_view{"byze_wallet_mnemonic_iv_v1"});
 
 } // namespace
+
+bool MasterExtKeyFromEntropy(std::span<const uint8_t, 32> entropy, CExtKey& master_out)
+{
+    CKey seed_key;
+    seed_key.Set(entropy.data(), entropy.data() + entropy.size(), true);
+    if (!seed_key.IsValid()) {
+        return false;
+    }
+    master_out.SetSeed(seed_key);
+    return true;
+}
+
+bool MasterExtKeyFromMnemonic(const std::string& mnemonic, CExtKey& master_out, std::string& error)
+{
+    std::vector<uint8_t> entropy;
+    if (!DecodeMnemonic(mnemonic, entropy, error)) {
+        return false;
+    }
+    if (entropy.size() != 32) {
+        error = "Invalid mnemonic entropy length";
+        return false;
+    }
+    if (!MasterExtKeyFromEntropy(std::span<const uint8_t, 32>(entropy.data(), entropy.size()), master_out)) {
+        error = "Failed to derive HD master from mnemonic entropy";
+        return false;
+    }
+    return true;
+}
+
+bool DescriptorRootExtKeysMatch(const CExtKey& a, const CExtKey& b)
+{
+    if (!a.key.IsValid() || !b.key.IsValid()) {
+        return false;
+    }
+    return a.key.GetPubKey() == b.key.GetPubKey() && a.chaincode == b.chaincode;
+}
 
 bool CWallet::PersistWalletMnemonic(WalletBatch& batch, const std::string& mnemonic)
 {
@@ -107,6 +144,44 @@ DBErrors CWallet::LoadMnemonicFromDatabase(DatabaseBatch& batch)
     m_mnemonic_storage.assign(raw.begin(), raw.end());
     m_mnemonic_is_encrypted = IsCrypted();
     return DBErrors::LOAD_OK;
+}
+
+bool CWallet::StoredMnemonicMatchesActiveDescriptors() const
+{
+    AssertLockHeld(cs_wallet);
+    if (!HasWalletMnemonic()) {
+        return true;
+    }
+    std::string mnemonic;
+    if (!GetWalletMnemonic(mnemonic)) {
+        return true; // locked encrypted wallet: cannot verify until unlock
+    }
+    CExtKey from_mnemonic;
+    std::string error;
+    if (!MasterExtKeyFromMnemonic(mnemonic, from_mnemonic, error)) {
+        return false;
+    }
+    const std::optional<CExtKey> active = TryGetTaprootDescriptorRootExtKey();
+    if (!active) {
+        return true;
+    }
+    return DescriptorRootExtKeysMatch(from_mnemonic, *active);
+}
+
+void CWallet::MaybeWarnMnemonicDescriptorMismatch(std::vector<bilingual_str>& warnings) const
+{
+    AssertLockHeld(cs_wallet);
+    if (!HasWalletMnemonic()) {
+        return;
+    }
+    if (StoredMnemonicMatchesActiveDescriptors()) {
+        return;
+    }
+    warnings.emplace_back(Untranslated(
+        "The stored BIP39 recovery phrase does not match the active taproot descriptor keys in this wallet. "
+        "Funds may have been received on addresses from an earlier key generation (for example after "
+        "encrypting an unencrypted wallet). Back up wallet.dat and use restorewallet, or contact support. "
+        "restorefrommnemonic will not recover mined balances for this wallet."));
 }
 
 } // namespace wallet

@@ -5,6 +5,7 @@
 
 #include <wallet/wallet.h>
 #include <wallet/bip39.h>
+#include <wallet/wallet_mnemonic.h>
 #include <wallet/walletquantum.h>
 
 #include <bitcoin-build-config.h> // IWYU pragma: keep
@@ -966,8 +967,8 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
         Lock();
         Unlock(strWalletPassphrase);
 
-        // Make new descriptors with a new seed
-        if (!IsWalletFlagSet(WALLET_FLAG_BLANK_WALLET)) {
+        // Only blank wallets need descriptor generation after encryption (born-encrypted create path).
+        if (IsWalletFlagSet(WALLET_FLAG_BLANK_WALLET)) {
             SetupDescriptorScriptPubKeyMans();
         }
         Lock();
@@ -3047,6 +3048,11 @@ std::shared_ptr<CWallet> CWallet::Create(WalletContext& context, const std::stri
         }
     }
 
+    {
+        LOCK(walletInstance->cs_wallet);
+        walletInstance->MaybeWarnMnemonicDescriptorMismatch(warnings);
+    }
+
     // This wallet is in its first run if there are no ScriptPubKeyMans and it isn't blank or no privkeys
     const bool fFirstRun = walletInstance->m_spk_managers.empty() &&
                      !walletInstance->IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS) &&
@@ -3717,30 +3723,7 @@ void CWallet::SetupDescriptorScriptPubKeyMans(WalletBatch& batch, const CExtKey&
     }
 }
 
-void CWallet::SetupOwnDescriptorScriptPubKeyMans(WalletBatch& batch)
-{
-    AssertLockHeld(cs_wallet);
-    assert(!IsWalletFlagSet(WALLET_FLAG_EXTERNAL_SIGNER));
-    // HD root entropy: 32 random bytes, encoded as BIP39 for optional paper backup.
-    uint8_t entropy[32];
-    GetStrongRandBytes(entropy);
-    const std::string mnemonic = EncodeMnemonic(std::span<const uint8_t, 32>(entropy));
-
-    CKey seed_key;
-    seed_key.Set(entropy, entropy + 32, true);
-    CPubKey seed = seed_key.GetPubKey();
-    assert(seed_key.VerifyPubKey(seed));
-
-    CExtKey master_key;
-    master_key.SetSeed(seed_key);
-
-    SetupDescriptorScriptPubKeyMans(batch, master_key);
-    if (!PersistWalletMnemonic(batch, mnemonic)) {
-        throw std::runtime_error(std::string(__func__) + ": failed to persist BIP39 recovery phrase");
-    }
-}
-
-void CWallet::SetupDescriptorScriptPubKeyMansFromMnemonic(WalletBatch& batch, const std::string& mnemonic)
+void CWallet::SetupDescriptorScriptPubKeyMansFromEntropy(WalletBatch& batch, std::span<const uint8_t, 32> entropy, const std::string& mnemonic)
 {
     AssertLockHeld(cs_wallet);
     assert(!IsWalletFlagSet(WALLET_FLAG_EXTERNAL_SIGNER));
@@ -3750,6 +3733,32 @@ void CWallet::SetupDescriptorScriptPubKeyMansFromMnemonic(WalletBatch& batch, co
     if (HasWalletMnemonic() || HasQuantumReceiveProgram()) {
         throw std::runtime_error(std::string(__func__) + ": wallet already initialized");
     }
+
+    CExtKey master_key;
+    if (!MasterExtKeyFromEntropy(entropy, master_key)) {
+        throw std::runtime_error(std::string(__func__) + ": failed to derive HD master from entropy");
+    }
+
+    SetupDescriptorScriptPubKeyMans(batch, master_key);
+    if (!PersistWalletMnemonic(batch, mnemonic)) {
+        throw std::runtime_error(std::string(__func__) + ": failed to persist BIP39 recovery phrase");
+    }
+}
+
+void CWallet::SetupOwnDescriptorScriptPubKeyMans(WalletBatch& batch)
+{
+    AssertLockHeld(cs_wallet);
+    assert(!IsWalletFlagSet(WALLET_FLAG_EXTERNAL_SIGNER));
+    uint8_t entropy[32];
+    GetStrongRandBytes(entropy);
+    const std::string mnemonic = EncodeMnemonic(std::span<const uint8_t, 32>(entropy));
+    SetupDescriptorScriptPubKeyMansFromEntropy(batch, entropy, mnemonic);
+}
+
+void CWallet::SetupDescriptorScriptPubKeyMansFromMnemonic(WalletBatch& batch, const std::string& mnemonic)
+{
+    AssertLockHeld(cs_wallet);
+    assert(!IsWalletFlagSet(WALLET_FLAG_EXTERNAL_SIGNER));
 
     std::vector<uint8_t> entropy;
     std::string error;
@@ -3761,19 +3770,7 @@ void CWallet::SetupDescriptorScriptPubKeyMansFromMnemonic(WalletBatch& batch, co
     }
 
     const std::string canonical_mnemonic = EncodeMnemonic(std::span<const uint8_t, 32>(entropy.data(), entropy.size()));
-
-    CKey seed_key;
-    seed_key.Set(entropy.data(), entropy.data() + entropy.size(), true);
-    CPubKey seed = seed_key.GetPubKey();
-    assert(seed_key.VerifyPubKey(seed));
-
-    CExtKey master_key;
-    master_key.SetSeed(seed_key);
-
-    SetupDescriptorScriptPubKeyMans(batch, master_key);
-    if (!PersistWalletMnemonic(batch, canonical_mnemonic)) {
-        throw std::runtime_error(std::string(__func__) + ": failed to persist BIP39 recovery phrase");
-    }
+    SetupDescriptorScriptPubKeyMansFromEntropy(batch, std::span<const uint8_t, 32>(entropy.data(), entropy.size()), canonical_mnemonic);
 }
 
 void CWallet::SetupDescriptorScriptPubKeyMans()

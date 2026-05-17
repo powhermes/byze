@@ -71,6 +71,7 @@ static RPCHelpMan getwalletinfo()
                         {RPCResult::Type::NUM, "quantum_record_format", /*optional=*/true, "on-disk quantum blob format version (1 legacy, 2 current); absent when no quantum state"},
                         {RPCResult::Type::STR, "quantum_recovery_note", "how quantum keys relate to HD / mnemonic recovery"},
                         {RPCResult::Type::BOOL, "has_mnemonic", "whether a BIP39 recovery phrase is stored in this wallet database"},
+                        {RPCResult::Type::BOOL, "mnemonic_matches_descriptors", /*optional=*/true, "whether the stored phrase derives the same taproot descriptor root as active keys (false indicates wallet.dat backup is required for full recovery)"},
                         RESULT_LAST_PROCESSED_BLOCK,
                     }},
                 },
@@ -149,6 +150,9 @@ static RPCHelpMan getwalletinfo()
     }
     obj.pushKV("quantum_recovery_note", _("Quantum spend keys and taproot descriptors are fully contained in wallet.dat (sqlite). A BIP39 phrase is stored when the wallet was created with recovery words enabled; the wallet encryption passphrase also encrypts quantum and mnemonic blobs.").original);
     obj.pushKV("has_mnemonic", pwallet->HasWalletMnemonic());
+    if (pwallet->HasWalletMnemonic() && !pwallet->IsLocked()) {
+        obj.pushKV("mnemonic_matches_descriptors", pwallet->StoredMnemonicMatchesActiveDescriptors());
+    }
 
     AppendLastProcessedBlock(obj, *pwallet);
     return obj;
@@ -184,7 +188,7 @@ static RPCHelpMan helpwallet()
         "  restorewallet \"name\" \"backup.dat\"\n"
         "      Restore from a wallet.dat backup file (not from words alone).\n\n"
         "  getwalletinfo\n"
-        "      Shows has_mnemonic, quantum_hd_derived, and related fields.\n\n"
+        "      Shows has_mnemonic, mnemonic_matches_descriptors, quantum_hd_derived, and related fields.\n\n"
         "See also: encryptwallet, walletpassphrase, loadwallet, unloadwallet, listwallets.\n"
         "Full help: help createwallet | help restorefrommnemonic | help getrecoveryphrase"};
     return text;
@@ -220,6 +224,11 @@ static RPCHelpMan getrecoveryphrase()
     std::string mnemonic;
     if (!pwallet->GetWalletMnemonic(mnemonic)) {
         throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED, "Wallet must be unlocked to read the recovery phrase");
+    }
+    if (!pwallet->StoredMnemonicMatchesActiveDescriptors()) {
+        throw JSONRPCError(RPC_WALLET_ERROR,
+            "Stored recovery phrase does not match active descriptor keys. "
+            "Use wallet.dat backup (restorewallet) to recover funds; restorefrommnemonic would derive different addresses.");
     }
     UniValue ret(UniValue::VOBJ);
     ret.pushKV("mnemonic", mnemonic);

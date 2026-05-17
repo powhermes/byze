@@ -732,6 +732,9 @@ public:
     bool EncryptWalletMnemonicForWallet(const CKeyingMaterial& master_key, WalletBatch* batch) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     bool HasWalletMnemonic() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     bool GetWalletMnemonic(std::string& mnemonic_out) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: true if stored mnemonic derives the same taproot descriptor root as active SPKMs. */
+    bool StoredMnemonicMatchesActiveDescriptors() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    void MaybeWarnMnemonicDescriptorMismatch(std::vector<bilingual_str>& warnings) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: taproot destination for this wallet's quantum receive program (requires existing keys). */
     std::optional<CTxDestination> GetQuantumReceiveDestination() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
@@ -1095,6 +1098,8 @@ public:
 
     //! Create new seed and default DescriptorScriptPubKeyMans for this wallet
     void SetupOwnDescriptorScriptPubKeyMans(WalletBatch& batch) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: install descriptors + quantum keys from entropy; persist canonical mnemonic text. */
+    void SetupDescriptorScriptPubKeyMansFromEntropy(WalletBatch& batch, std::span<const uint8_t, 32> entropy, const std::string& mnemonic) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: restore taproot descriptors, quantum keys, and stored mnemonic from a validated phrase. */
     void SetupDescriptorScriptPubKeyMansFromMnemonic(WalletBatch& batch, const std::string& mnemonic) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 

@@ -28,9 +28,47 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         descs = wallet_rpc.listdescriptors()
         return sorted(d["desc"] for d in descs["descriptors"] if d.get("active"))
 
+    def descriptor_private_strings(self, wallet_rpc):
+        descs = wallet_rpc.listdescriptors(private=True)
+        return sorted(d["desc"] for d in descs["descriptors"] if d.get("active"))
+
     def run_test(self):
         miner, peer = self.nodes[0], self.nodes[1]
         w_orig = miner.get_wallet_rpc("default_wallet")
+
+        self.log.info("createwallet -> three addresses -> mnemonic -> restore reproduces exact sequence")
+        seq_wallet = miner.createwallet(wallet_name="seq_test")
+        assert "mnemonic" in seq_wallet
+        w_seq = miner.get_wallet_rpc("seq_test")
+        addrs = [w_seq.getnewaddress() for _ in range(3)]
+        seq_mnemonic = w_seq.getrecoveryphrase()["mnemonic"]
+        seq_xpubs = self.descriptor_xpubs(w_seq)
+        miner.unloadwallet("seq_test")
+        miner.restorefrommnemonic("seq_restored", seq_mnemonic)
+        w_seq_r = miner.get_wallet_rpc("seq_restored")
+        assert_equal([w_seq_r.getnewaddress() for _ in range(3)], addrs)
+        assert_equal(self.descriptor_xpubs(w_seq_r), seq_xpubs)
+        info_seq = w_seq_r.getwalletinfo()
+        assert_equal(info_seq["mnemonic_matches_descriptors"], True)
+        miner.unloadwallet("seq_restored")
+
+        self.log.info("encryptwallet on funded wallet must not rotate descriptor root or mnemonic")
+        miner.createwallet(wallet_name="enc_after_create")
+        w_encfix = miner.get_wallet_rpc("enc_after_create")
+        addr0 = w_encfix.getnewaddress()
+        mnemonic_before = w_encfix.getrecoveryphrase()["mnemonic"]
+        priv_before = self.descriptor_private_strings(w_encfix)
+        w_encfix.encryptwallet("EncAfterCreatePass")
+        w_encfix.walletpassphrase("EncAfterCreatePass", 60)
+        assert_equal(w_encfix.getrecoveryphrase()["mnemonic"], mnemonic_before)
+        assert_equal(self.descriptor_private_strings(w_encfix), priv_before)
+        assert_equal(w_encfix.getwalletinfo()["mnemonic_matches_descriptors"], True)
+        miner.unloadwallet("enc_after_create")
+        miner.restorefrommnemonic("enc_after_restored", mnemonic_before, "EncAfterCreatePass")
+        w_encfix_r = miner.get_wallet_rpc("enc_after_restored")
+        with WalletUnlock(w_encfix_r, "EncAfterCreatePass"):
+            assert_equal(w_encfix_r.getnewaddress(), addr0)
+        miner.unloadwallet("enc_after_restored")
 
         self.log.info("Create funded wallet and capture mnemonic + descriptors")
         for _ in range(110):
