@@ -74,6 +74,16 @@ void RandomXMiningHash(
     const CBlockHeader& header,
     uint256& out);
 
+/**
+ * Lazy RandomX context for RPC generatetoaddress / generatetodescriptor.
+ * Uses per-thread VMs (no global mutex) so functional tests are not starved.
+ * @param allow_parallel If true, create up to 4 VMs for parallel nonce search.
+ */
+RandomXMiningContext* GetOrCreateRpcMiningContext(bool allow_parallel);
+
+/** Release RPC mining context (called from CleanupRandomXResources). */
+void DestroyRpcMiningContext();
+
 #endif // BITCOIN_CRYPTO_RANDOMX_HASH_H
 
 

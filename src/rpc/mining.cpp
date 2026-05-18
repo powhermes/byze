@@ -24,7 +24,12 @@
 #include <node/context.h>
 #include <node/miner.h>
 #include <node/warnings.h>
+#include <crypto/randomx_hash.h>
 #include <pow.h>
+#include <sync.h>
+
+#include <atomic>
+#include <thread>
 #include <primitives/transaction.h>
 #include <rpc/blockchain.h>
 #include <rpc/mining.h>
@@ -142,20 +147,90 @@ static RPCHelpMan getnetworkhashps()
 /** Attach quantum_signatures when mainnet policy requires them (shared by pool RPC and generate). */
 static bool MaybeSignBlockQuantum(CBlock& block, bool* quantum_signed_out = nullptr);
 
+/**
+ * Search for a valid RandomX nonce using per-thread VMs (not the global validation mutex).
+ * On test chains, uses parallel nonce search for faster functional tests.
+ */
+static bool FindBlockProofOfWork(CBlock& block, const Consensus::Params& params, uint64_t& max_tries, const util::SignalInterrupt& interrupt)
+{
+    RandomXMiningContext* ctx = GetOrCreateRpcMiningContext(Params().IsTestChain());
+    if (!ctx || ctx->vms.empty()) {
+        while (max_tries > 0 && block.nNonce < std::numeric_limits<uint32_t>::max() &&
+               !CheckProofOfWork(block, block.nBits, params) && !static_cast<bool>(interrupt)) {
+            ++block.nNonce;
+            --max_tries;
+        }
+        return max_tries > 0 && !static_cast<bool>(interrupt) &&
+               CheckProofOfWork(block, block.nBits, params);
+    }
+
+    const size_t num_threads = ctx->vms.size();
+    if (num_threads == 1) {
+        uint256 hash;
+        while (max_tries > 0 && block.nNonce < std::numeric_limits<uint32_t>::max() && !static_cast<bool>(interrupt)) {
+            RandomXMiningHash(ctx, 0, block, hash);
+            if (CheckProofOfWorkImpl(hash, block.nBits, params)) {
+                return true;
+            }
+            ++block.nNonce;
+            --max_tries;
+        }
+        return false;
+    }
+
+    std::atomic<bool> found{false};
+    std::atomic<uint64_t> tries_remaining{max_tries};
+    std::atomic<uint32_t> next_nonce{block.nNonce};
+    Mutex found_nonce_mutex;
+    uint32_t winning_nonce{block.nNonce};
+
+    std::vector<std::thread> workers;
+    workers.reserve(num_threads);
+    for (size_t t = 0; t < num_threads; ++t) {
+        workers.emplace_back([&, t] {
+            uint256 hash;
+            while (!found.load(std::memory_order_relaxed) && tries_remaining.load(std::memory_order_relaxed) > 0 &&
+                   !static_cast<bool>(interrupt)) {
+                const uint32_t nonce = next_nonce.fetch_add(1, std::memory_order_relaxed);
+                if (nonce == std::numeric_limits<uint32_t>::max()) {
+                    break;
+                }
+
+                CBlockHeader header = block.GetBlockHeader();
+                header.nNonce = nonce;
+                RandomXMiningHash(ctx, t, header, hash);
+                if (!CheckProofOfWorkImpl(hash, block.nBits, params)) {
+                    tries_remaining.fetch_sub(1, std::memory_order_relaxed);
+                    continue;
+                }
+
+                LOCK(found_nonce_mutex);
+                if (!found.exchange(true)) {
+                    winning_nonce = nonce;
+                }
+                return;
+            }
+        });
+    }
+    for (auto& worker : workers) {
+        worker.join();
+    }
+
+    max_tries = tries_remaining.load();
+    if (!found) {
+        return false;
+    }
+    block.nNonce = winning_nonce;
+    return true;
+}
+
 static bool GenerateBlock(ChainstateManager& chainman, CBlock& block, uint64_t& max_tries, std::shared_ptr<const CBlock>& block_out, bool process_new_block)
 {
     block_out.reset();
     block.hashMerkleRoot = BlockMerkleRoot(block);
 
-    while (max_tries > 0 && block.nNonce < std::numeric_limits<uint32_t>::max() && !CheckProofOfWork(block.GetHash(), block.nBits, chainman.GetConsensus()) && !static_cast<bool>(chainman.m_interrupt)) {
-        ++block.nNonce;
-        --max_tries;
-    }
-    if (max_tries == 0 || static_cast<bool>(chainman.m_interrupt)) {
+    if (!FindBlockProofOfWork(block, chainman.GetConsensus(), max_tries, chainman.m_interrupt)) {
         return false;
-    }
-    if (block.nNonce == std::numeric_limits<uint32_t>::max()) {
-        return true;
     }
 
     if (!MaybeSignBlockQuantum(block)) {

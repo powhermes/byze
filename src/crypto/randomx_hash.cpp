@@ -14,6 +14,8 @@
 #include <mutex>
 #include <memory>
 #include <cstring>
+#include <algorithm>
+#include <thread>
 
 namespace {
 
@@ -38,6 +40,9 @@ static randomx_cache* g_cache = nullptr;
 static randomx_dataset* g_dataset = nullptr;
 static randomx_vm* g_vm = nullptr;
 static bool randomx_initialized = false;
+
+static RandomXMiningContext* g_rpc_mining_ctx = nullptr;
+static std::mutex g_rpc_ctx_mutex;
 
 } // anonymous namespace
 
@@ -174,11 +179,7 @@ uint256 RandomXHash(const CBlockHeader& block, bool disable_jit_for_testing)
     return result;
 }
 
-// Cleanup function to be called on shutdown
-void CleanupRandomXResources()
-{
-    CleanupRandomX();
-}
+// Cleanup function to be called on shutdown (RPC context freed in DestroyRpcMiningContext)
 
 // Mining-specific RandomX API implementation
 
@@ -314,5 +315,38 @@ void RandomXMiningHash(
     
     // Convert to uint256 (little-endian, same as Bitcoin)
     std::memcpy(out.begin(), hash_output, 32);
+}
+
+void DestroyRpcMiningContext()
+{
+    std::lock_guard<std::mutex> lock(g_rpc_ctx_mutex);
+    if (g_rpc_mining_ctx) {
+        DestroyMiningContext(g_rpc_mining_ctx);
+        g_rpc_mining_ctx = nullptr;
+    }
+}
+
+RandomXMiningContext* GetOrCreateRpcMiningContext(bool allow_parallel)
+{
+    std::lock_guard<std::mutex> lock(g_rpc_ctx_mutex);
+    if (g_rpc_mining_ctx) {
+        return g_rpc_mining_ctx;
+    }
+
+    size_t threads = 1;
+    if (allow_parallel) {
+        unsigned int hw = std::thread::hardware_concurrency();
+        if (hw == 0) hw = 1;
+        threads = std::max<size_t>(1, std::min<size_t>(4, hw));
+    }
+
+    g_rpc_mining_ctx = CreateMiningContext(threads);
+    return g_rpc_mining_ctx;
+}
+
+void CleanupRandomXResources()
+{
+    DestroyRpcMiningContext();
+    CleanupRandomX();
 }
 

@@ -548,6 +548,18 @@ std::shared_ptr<CWallet> RestoreWalletFromMnemonic(WalletContext& context, const
         return nullptr;
     }
 
+    {
+        LOCK(wallet->cs_wallet);
+        if (!RunWithinTxn(wallet->GetDatabase(), /*process_desc=*/"restore mnemonic", [&](WalletBatch& batch) EXCLUSIVE_LOCKS_REQUIRED(wallet->cs_wallet) {
+                wallet->SetupDescriptorScriptPubKeyMansFromMnemonic(batch, mnemonic);
+                return true;
+            })) {
+            error = Untranslated("Failed to restore wallet from recovery phrase");
+            status = DatabaseStatus::FAILED_CREATE;
+            return nullptr;
+        }
+    }
+
     if (!passphrase.empty()) {
         if (!wallet->EncryptWallet(passphrase)) {
             error = Untranslated("Error: Wallet created but failed to encrypt.");
@@ -557,18 +569,6 @@ std::shared_ptr<CWallet> RestoreWalletFromMnemonic(WalletContext& context, const
         if (!wallet->Unlock(passphrase)) {
             error = Untranslated("Error: Wallet was encrypted but could not be unlocked");
             status = DatabaseStatus::FAILED_ENCRYPT;
-            return nullptr;
-        }
-    }
-
-    {
-        LOCK(wallet->cs_wallet);
-        if (!RunWithinTxn(wallet->GetDatabase(), /*process_desc=*/"restore mnemonic", [&](WalletBatch& batch) EXCLUSIVE_LOCKS_REQUIRED(wallet->cs_wallet) {
-                wallet->SetupDescriptorScriptPubKeyMansFromMnemonic(batch, mnemonic);
-                return true;
-            })) {
-            error = Untranslated("Failed to restore wallet from recovery phrase");
-            status = DatabaseStatus::FAILED_CREATE;
             return nullptr;
         }
     }
@@ -967,8 +967,9 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
         Lock();
         Unlock(strWalletPassphrase);
 
-        // Only blank wallets need descriptor generation after encryption (born-encrypted create path).
-        if (IsWalletFlagSet(WALLET_FLAG_BLANK_WALLET)) {
+        // Born-encrypted createwallet: descriptors are set up after unlock in CreateWallet().
+        // Restore-from-mnemonic sets up descriptors before calling EncryptWallet().
+        if (IsWalletFlagSet(WALLET_FLAG_BLANK_WALLET) && m_spk_managers.empty()) {
             SetupDescriptorScriptPubKeyMans();
         }
         Lock();
@@ -3727,6 +3728,12 @@ void CWallet::SetupDescriptorScriptPubKeyMansFromEntropy(WalletBatch& batch, std
 {
     AssertLockHeld(cs_wallet);
     assert(!IsWalletFlagSet(WALLET_FLAG_EXTERNAL_SIGNER));
+
+    std::string existing_mnemonic;
+    if (GetWalletMnemonic(existing_mnemonic) && existing_mnemonic == mnemonic &&
+        !m_spk_managers.empty() && StoredMnemonicMatchesActiveDescriptors()) {
+        return;
+    }
     if (!m_spk_managers.empty()) {
         throw std::runtime_error(std::string(__func__) + ": wallet already has keys");
     }

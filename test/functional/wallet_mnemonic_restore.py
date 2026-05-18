@@ -71,8 +71,7 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         miner.unloadwallet("enc_after_restored")
 
         self.log.info("Create funded wallet and capture mnemonic + descriptors")
-        for _ in range(110):
-            self.generate(miner, 1)
+        self.generate(miner, 110)
         addr_orig = w_orig.getnewaddress()
         info_orig = w_orig.getwalletinfo()
         assert_equal(info_orig["has_mnemonic"], True)
@@ -131,6 +130,44 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         assert_equal(info_enc["quantum_secrets_encrypted"], True)
         assert_equal(info_enc["quantum_hd_derived"], True)
         assert_equal(info_enc["has_mnemonic"], True)
+
+        self.log.info("restorefrommnemonic(..., passphrase) must not reinitialize descriptors")
+        restore_pass = "RestoreEncNoReinitPass"
+        miner.createwallet(wallet_name="solo_enc_src")
+        w_solo = miner.get_wallet_rpc("solo_enc_src")
+        self.generate(miner, 110)
+        solo_addrs = [w_solo.getnewaddress() for _ in range(3)]
+        solo_mnemonic = w_solo.getrecoveryphrase()["mnemonic"]
+        solo_xpubs = self.descriptor_xpubs(w_solo)
+        w_orig.sendtoaddress(solo_addrs[0], Decimal("1"))
+        self.generate(miner, 1)
+        assert w_solo.getbalance() > 0
+        miner.unloadwallet("solo_enc_src")
+
+        with miner.assert_debug_log(
+            unexpected_msgs=[
+                "SetupDescriptorScriptPubKeyMansFromEntropy: wallet already has keys",
+            ],
+        ):
+            miner.restorefrommnemonic("solo_enc_restored", solo_mnemonic, restore_pass)
+        w_solo_r = miner.get_wallet_rpc("solo_enc_restored")
+        with WalletUnlock(w_solo_r, restore_pass):
+            assert_equal([w_solo_r.getnewaddress() for _ in range(3)], solo_addrs)
+            assert_equal(w_solo_r.getrecoveryphrase()["mnemonic"], solo_mnemonic)
+        assert_equal(self.descriptor_xpubs(w_solo_r), solo_xpubs)
+        assert_equal(w_solo_r.getwalletinfo()["mnemonic_matches_descriptors"], True)
+        assert w_solo_r.getbalance() > 0
+        miner.unloadwallet("solo_enc_restored")
+
+        self.log.info("encryptwallet reports Byze-appropriate success message")
+        miner.createwallet(wallet_name="enc_msg_test")
+        w_msg = miner.get_wallet_rpc("enc_msg_test")
+        w_msg.getnewaddress()
+        msg = w_msg.encryptwallet("EncMsgTestPass")
+        assert "recovery phrase remains valid" in msg
+        assert "keypool" not in msg.lower()
+        assert "hd seed" not in msg.lower()
+        miner.unloadwallet("enc_msg_test")
 
         self.log.info("After deleting wallet.dat directory, restorefrommnemonic recreates the same wallet")
         miner.createwallet(wallet_name="lost_wallet")
