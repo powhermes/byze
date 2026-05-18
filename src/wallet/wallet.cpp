@@ -388,9 +388,6 @@ std::shared_ptr<CWallet> CreateWallet(WalletContext& context, const std::string&
     Assert(wallet_creation_flags & WALLET_FLAG_DESCRIPTORS);
     options.require_format = DatabaseFormat::SQLITE;
 
-    // Indicate that the wallet is actually supposed to be blank and not just blank to make it encrypted
-    bool create_blank = (wallet_creation_flags & WALLET_FLAG_BLANK_WALLET);
-
     // Born encrypted wallets need to be created blank first.
     if (!passphrase.empty()) {
         wallet_creation_flags |= WALLET_FLAG_BLANK_WALLET;
@@ -434,21 +431,16 @@ std::shared_ptr<CWallet> CreateWallet(WalletContext& context, const std::string&
             status = DatabaseStatus::FAILED_ENCRYPT;
             return nullptr;
         }
-        if (!create_blank) {
-            // Unlock the wallet
+        // Born-encrypted createwallet sets up descriptors inside EncryptWallet() when
+        // WALLET_FLAG_BLANK_WALLET is set. Do not run a second descriptor initialization.
+        LOCK(wallet->cs_wallet);
+        if (wallet->GetAllScriptPubKeyMans().empty()) {
             if (!wallet->Unlock(passphrase)) {
                 error = Untranslated("Error: Wallet was encrypted but could not be unlocked");
                 status = DatabaseStatus::FAILED_ENCRYPT;
                 return nullptr;
             }
-
-            // Set a seed for the wallet
-            {
-                LOCK(wallet->cs_wallet);
-                wallet->SetupDescriptorScriptPubKeyMans();
-            }
-
-            // Relock the wallet
+            wallet->SetupDescriptorScriptPubKeyMans();
             wallet->Lock();
         }
     }

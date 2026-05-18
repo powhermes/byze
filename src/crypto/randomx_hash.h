@@ -43,17 +43,21 @@ void CleanupRandomXResources();
  * Cache and dataset are shared, but each thread has its own VM
  */
 struct RandomXMiningContext {
-    randomx_cache* cache;
-    randomx_dataset* dataset;
+    randomx_cache* cache{nullptr};
+    randomx_dataset* dataset{nullptr};
     std::vector<randomx_vm*> vms;
+    /** If false, cache/dataset are shared with global validation RandomX and must not be freed. */
+    bool owns_cache_dataset{true};
 };
 
 /**
  * Create a mining context with multiple VMs (one per thread)
  * @param threads Number of threads (VMs to create)
+ * @param disable_jit If true, use interpreter mode (avoid for production mining)
+ * @param share_global_dataset If true, attach VMs to the validation cache/dataset instead of allocating another copy
  * @return Pointer to mining context, or nullptr on failure
  */
-RandomXMiningContext* CreateMiningContext(size_t threads);
+RandomXMiningContext* CreateMiningContext(size_t threads, bool disable_jit = false, bool share_global_dataset = false);
 
 /**
  * Destroy a mining context and free all resources
@@ -77,9 +81,9 @@ void RandomXMiningHash(
 /**
  * Lazy RandomX context for RPC generatetoaddress / generatetodescriptor.
  * Uses per-thread VMs (no global mutex) so functional tests are not starved.
- * @param allow_parallel If true, create up to 4 VMs for parallel nonce search.
+ * @param is_test_chain If true (regtest/signet/testnet), attach per-thread VMs to the shared validation dataset (no second dataset).
  */
-RandomXMiningContext* GetOrCreateRpcMiningContext(bool allow_parallel);
+RandomXMiningContext* GetOrCreateRpcMiningContext(bool is_test_chain);
 
 /** Release RPC mining context (called from CleanupRandomXResources). */
 void DestroyRpcMiningContext();

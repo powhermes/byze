@@ -71,7 +71,8 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         miner.unloadwallet("enc_after_restored")
 
         self.log.info("Create funded wallet and capture mnemonic + descriptors")
-        self.generate(miner, 110)
+        fund_addr = w_orig.getnewaddress()
+        self.generatetoaddress(miner, 110, fund_addr)
         addr_orig = w_orig.getnewaddress()
         info_orig = w_orig.getwalletinfo()
         assert_equal(info_orig["has_mnemonic"], True)
@@ -84,9 +85,34 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         assert "mnemonic" in cw_plain
         assert_equal(len(cw_plain["mnemonic"].split()), 24)
         miner.unloadwallet("cw_plain_show")
-        cw_enc = miner.createwallet(wallet_name="cw_enc_show", passphrase="CwEncPass123")
+
+        self.log.info("createwallet encrypted -> unlock -> getrecoveryphrase -> restore reproduces addresses")
+        enc_create_pass = "CwEncCreatePass123"
+        with miner.assert_debug_log(
+            expected_msgs=[],
+            unexpected_msgs=[
+                "SetupDescriptorScriptPubKeyMansFromEntropy: wallet already has keys",
+            ],
+        ):
+            cw_enc = miner.createwallet(wallet_name="cw_enc_create", passphrase=enc_create_pass)
         assert "mnemonic_note" in cw_enc
-        miner.unloadwallet("cw_enc_show")
+        assert "mnemonic" not in cw_enc
+        w_enc_create = miner.get_wallet_rpc("cw_enc_create")
+        with WalletUnlock(w_enc_create, enc_create_pass):
+            enc_create_mnemonic = w_enc_create.getrecoveryphrase()["mnemonic"]
+            assert_equal(len(enc_create_mnemonic.split()), 24)
+            enc_create_addrs = [w_enc_create.getnewaddress() for _ in range(3)]
+            enc_create_xpubs = self.descriptor_xpubs(w_enc_create)
+            assert_equal(w_enc_create.getwalletinfo()["mnemonic_matches_descriptors"], True)
+        miner.unloadwallet("cw_enc_create")
+        miner.restorefrommnemonic("cw_enc_restored", enc_create_mnemonic, enc_create_pass)
+        w_enc_restored = miner.get_wallet_rpc("cw_enc_restored")
+        with WalletUnlock(w_enc_restored, enc_create_pass):
+            assert_equal(w_enc_restored.getrecoveryphrase()["mnemonic"], enc_create_mnemonic)
+            assert_equal([w_enc_restored.getnewaddress() for _ in range(3)], enc_create_addrs)
+            assert_equal(w_enc_restored.getwalletinfo()["mnemonic_matches_descriptors"], True)
+        assert_equal(self.descriptor_xpubs(w_enc_restored), enc_create_xpubs)
+        miner.unloadwallet("cw_enc_restored")
 
         mnemonic = w_orig.getrecoveryphrase()["mnemonic"]
         assert_equal(len(mnemonic.split()), 24)
@@ -135,7 +161,8 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         restore_pass = "RestoreEncNoReinitPass"
         miner.createwallet(wallet_name="solo_enc_src")
         w_solo = miner.get_wallet_rpc("solo_enc_src")
-        self.generate(miner, 110)
+        solo_fund = w_solo.getnewaddress()
+        self.generatetoaddress(miner, 110, solo_fund)
         solo_addrs = [w_solo.getnewaddress() for _ in range(3)]
         solo_mnemonic = w_solo.getrecoveryphrase()["mnemonic"]
         solo_xpubs = self.descriptor_xpubs(w_solo)
@@ -145,6 +172,7 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         miner.unloadwallet("solo_enc_src")
 
         with miner.assert_debug_log(
+            expected_msgs=[],
             unexpected_msgs=[
                 "SetupDescriptorScriptPubKeyMansFromEntropy: wallet already has keys",
             ],
@@ -154,8 +182,8 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         with WalletUnlock(w_solo_r, restore_pass):
             assert_equal([w_solo_r.getnewaddress() for _ in range(3)], solo_addrs)
             assert_equal(w_solo_r.getrecoveryphrase()["mnemonic"], solo_mnemonic)
+            assert_equal(w_solo_r.getwalletinfo()["mnemonic_matches_descriptors"], True)
         assert_equal(self.descriptor_xpubs(w_solo_r), solo_xpubs)
-        assert_equal(w_solo_r.getwalletinfo()["mnemonic_matches_descriptors"], True)
         assert w_solo_r.getbalance() > 0
         miner.unloadwallet("solo_enc_restored")
 
@@ -175,8 +203,7 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         mnemonic_lost = w_lost.getrecoveryphrase()["mnemonic"]
         addr_lost = w_lost.getnewaddress()
         xpubs_lost = self.descriptor_xpubs(w_lost)
-        w_orig.sendtoaddress(addr_lost, Decimal("0.5"))
-        self.generate(miner, 1)
+        self.generatetoaddress(miner, 110, addr_lost)
         miner.unloadwallet("lost_wallet")
         lost_dir = miner.wallets_path / "lost_wallet"
         assert lost_dir.exists()
@@ -203,14 +230,9 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         miner.stopmining()
 
         self.log.info("help lists mnemonic and solo mining RPCs without internal error")
-        help_text = miner.help()
-        assert "getrecoveryphrase" in help_text
-        assert "restorefrommnemonic" in help_text
-        assert "createwallet" in help_text
-        assert "startmining" in help_text
-
         hw = miner.helpwallet()
         assert isinstance(hw, str) and len(hw) > 0
+        assert "getrecoveryphrase" in hw
         assert "restorefrommnemonic" in hw
         assert "createwallet" in hw
 

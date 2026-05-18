@@ -39,6 +39,7 @@ static std::mutex randomx_mutex;
 static randomx_cache* g_cache = nullptr;
 static randomx_dataset* g_dataset = nullptr;
 static randomx_vm* g_vm = nullptr;
+static randomx_flags g_init_flags = RANDOMX_FLAG_DEFAULT;
 static bool randomx_initialized = false;
 
 static RandomXMiningContext* g_rpc_mining_ctx = nullptr;
@@ -112,7 +113,8 @@ bool InitializeRandomX(bool disable_jit_for_testing)
     
     // Store dataset reference for cleanup
     g_dataset = dataset;
-    
+    g_init_flags = flags;
+
     randomx_initialized = true;
     if (dataset) {
         LogInfo("RandomX initialized successfully with FULL MEMORY mode (dataset enabled)\n");
@@ -142,6 +144,7 @@ static void CleanupRandomX()
         g_cache = nullptr;
     }
     
+    g_init_flags = RANDOMX_FLAG_DEFAULT;
     randomx_initialized = false;
 }
 
@@ -183,58 +186,77 @@ uint256 RandomXHash(const CBlockHeader& block, bool disable_jit_for_testing)
 
 // Mining-specific RandomX API implementation
 
-RandomXMiningContext* CreateMiningContext(size_t threads)
+RandomXMiningContext* CreateMiningContext(size_t threads, bool disable_jit, bool share_global_dataset)
 {
     if (threads == 0) {
         LogError("RandomX: Cannot create mining context with 0 threads\n");
         return nullptr;
     }
-    
-    // Use the same key as consensus validation (consensus-critical; see above).
-    constexpr unsigned char BYZE_RANDOMX_KEY_V1[] = {
-        0x48, 0x45, 0x52, 0x4D,
-        0x48, 0x65, 0x72, 0x6D,
-        0x65, 0x73, 0x20, 0x43,
-        0x6F, 0x69, 0x6E, 0x20,
-        0x52, 0x61, 0x6E, 0x64,
-        0x6F, 0x6D, 0x58, 0x20,
-        0x4E, 0x65, 0x74, 0x77,
-        0x6F, 0x72, 0x6B, 0x00
-    };
-    
-    // Get recommended flags for this machine
+
+    randomx_cache* cache = nullptr;
+    randomx_dataset* dataset = nullptr;
+    bool owns_cache_dataset = true;
     randomx_flags flags = randomx_get_flags();
-    
-    // Enable JIT and full memory mode for best mining performance
-    flags = static_cast<randomx_flags>(flags | RANDOMX_FLAG_JIT | RANDOMX_FLAG_FULL_MEM);
-    
-    // Allocate and initialize cache (shared across all VMs)
-    randomx_cache* cache = randomx_alloc_cache(flags);
-    if (!cache) {
-        LogError("RandomX: Failed to allocate cache for mining context\n");
-        return nullptr;
+
+    if (share_global_dataset) {
+        std::lock_guard<std::mutex> lock(randomx_mutex);
+        if (!randomx_initialized || !g_cache) {
+            LogError("RandomX: Cannot share global dataset before validation RandomX is initialized\n");
+            return nullptr;
+        }
+        cache = g_cache;
+        dataset = g_dataset;
+        flags = g_init_flags; // VMs must match validation flags exactly
+        owns_cache_dataset = false;
+        disable_jit = false; // unused when sharing; silences -Wunused-parameter
+        LogInfo("RandomX: Reusing validation cache/dataset for mining context\n");
+    } else {
+        // Use the same key as consensus validation (consensus-critical; see above).
+        constexpr unsigned char BYZE_RANDOMX_KEY_V1[] = {
+            0x48, 0x45, 0x52, 0x4D,
+            0x48, 0x65, 0x72, 0x6D,
+            0x65, 0x73, 0x20, 0x43,
+            0x6F, 0x69, 0x6E, 0x20,
+            0x52, 0x61, 0x6E, 0x64,
+            0x6F, 0x6D, 0x58, 0x20,
+            0x4E, 0x65, 0x74, 0x77,
+            0x6F, 0x72, 0x6B, 0x00
+        };
+
+        if (!disable_jit) {
+            flags = static_cast<randomx_flags>(flags | RANDOMX_FLAG_JIT | RANDOMX_FLAG_FULL_MEM);
+        } else {
+            flags = static_cast<randomx_flags>(flags | RANDOMX_FLAG_FULL_MEM);
+        }
+
+        cache = randomx_alloc_cache(flags);
+        if (!cache) {
+            LogError("RandomX: Failed to allocate cache for mining context\n");
+            return nullptr;
+        }
+
+        randomx_init_cache(cache, BYZE_RANDOMX_KEY_V1, sizeof(BYZE_RANDOMX_KEY_V1));
+
+        if (flags & RANDOMX_FLAG_FULL_MEM) {
+            dataset = randomx_alloc_dataset(flags);
+            if (!dataset) {
+                LogError("RandomX: Failed to allocate dataset for mining context\n");
+                randomx_release_cache(cache);
+                return nullptr;
+            }
+
+            LogInfo("RandomX: Initializing dataset for mining (this may take a moment)...\n");
+            const unsigned long dataset_item_count = randomx_dataset_item_count();
+            randomx_init_dataset(dataset, cache, 0, dataset_item_count);
+            LogInfo("RandomX: Dataset initialization complete\n");
+        }
     }
-    
-    randomx_init_cache(cache, BYZE_RANDOMX_KEY_V1, sizeof(BYZE_RANDOMX_KEY_V1));
-    
-    // Allocate dataset for full memory mode (shared across all VMs)
-    randomx_dataset* dataset = randomx_alloc_dataset(flags);
-    if (!dataset) {
-        LogError("RandomX: Failed to allocate dataset for mining context\n");
-        randomx_release_cache(cache);
-        return nullptr;
-    }
-    
-    // Initialize dataset (this can take a while, but only needs to be done once)
-    LogInfo("RandomX: Initializing dataset for mining (this may take a moment)...\n");
-    unsigned long dataset_item_count = randomx_dataset_item_count();
-    randomx_init_dataset(dataset, cache, 0, dataset_item_count);
-    LogInfo("RandomX: Dataset initialization complete\n");
-    
+
     // Create mining context
     RandomXMiningContext* ctx = new RandomXMiningContext;
     ctx->cache = cache;
     ctx->dataset = dataset;
+    ctx->owns_cache_dataset = owns_cache_dataset;
     ctx->vms.reserve(threads);
     
     // Create one VM per thread (all share the same cache and dataset)
@@ -246,15 +268,20 @@ RandomXMiningContext* CreateMiningContext(size_t threads)
             for (randomx_vm* v : ctx->vms) {
                 randomx_destroy_vm(v);
             }
-            randomx_release_dataset(dataset);
-            randomx_release_cache(cache);
+            if (owns_cache_dataset) {
+                if (dataset) {
+                    randomx_release_dataset(dataset);
+                }
+                randomx_release_cache(cache);
+            }
             delete ctx;
             return nullptr;
         }
         ctx->vms.push_back(vm);
     }
-    
-    LogInfo("RandomX: Created mining context with %zu VMs in FULL MEMORY mode\n", threads);
+
+    LogInfo("RandomX: Created mining context with %zu VM(s)%s\n", threads,
+            owns_cache_dataset ? " (dedicated dataset)" : " (shared validation dataset)");
     return ctx;
 }
 
@@ -270,15 +297,17 @@ void DestroyMiningContext(RandomXMiningContext* ctx)
     }
     ctx->vms.clear();
     
-    // Release dataset and cache
-    if (ctx->dataset) {
-        randomx_release_dataset(ctx->dataset);
-        ctx->dataset = nullptr;
-    }
-    
-    if (ctx->cache) {
-        randomx_release_cache(ctx->cache);
-        ctx->cache = nullptr;
+    // Release dataset and cache only when this context owns them
+    if (ctx->owns_cache_dataset) {
+        if (ctx->dataset) {
+            randomx_release_dataset(ctx->dataset);
+            ctx->dataset = nullptr;
+        }
+
+        if (ctx->cache) {
+            randomx_release_cache(ctx->cache);
+            ctx->cache = nullptr;
+        }
     }
     
     delete ctx;
@@ -326,21 +355,25 @@ void DestroyRpcMiningContext()
     }
 }
 
-RandomXMiningContext* GetOrCreateRpcMiningContext(bool allow_parallel)
+RandomXMiningContext* GetOrCreateRpcMiningContext(bool is_test_chain)
 {
     std::lock_guard<std::mutex> lock(g_rpc_ctx_mutex);
     if (g_rpc_mining_ctx) {
         return g_rpc_mining_ctx;
     }
 
-    size_t threads = 1;
-    if (allow_parallel) {
-        unsigned int hw = std::thread::hardware_concurrency();
-        if (hw == 0) hw = 1;
-        threads = std::max<size_t>(1, std::min<size_t>(4, hw));
+    unsigned int hw = std::thread::hardware_concurrency();
+    if (hw == 0) hw = 1;
+    size_t threads = std::max<size_t>(1, std::min<size_t>(4, static_cast<size_t>(hw)));
+    if (!is_test_chain) {
+        // Mainnet RPC mining gets a dedicated dataset; regtest shares the validation dataset.
+        threads = std::max<size_t>(1, threads);
     }
 
-    g_rpc_mining_ctx = CreateMiningContext(threads);
+    if (is_test_chain) {
+        InitializeRandomX(false);
+    }
+    g_rpc_mining_ctx = CreateMiningContext(threads, /*disable_jit=*/false, is_test_chain);
     return g_rpc_mining_ctx;
 }
 

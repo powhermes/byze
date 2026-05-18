@@ -149,7 +149,7 @@ static bool MaybeSignBlockQuantum(CBlock& block, bool* quantum_signed_out = null
 
 /**
  * Search for a valid RandomX nonce using per-thread VMs (not the global validation mutex).
- * On test chains, uses parallel nonce search for faster functional tests.
+ * Uses parallel nonce search when multiple mining VMs are available.
  */
 static bool FindBlockProofOfWork(CBlock& block, const Consensus::Params& params, uint64_t& max_tries, const util::SignalInterrupt& interrupt)
 {
