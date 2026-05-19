@@ -5,6 +5,7 @@
 
 #include <bitcoin-build-config.h> // IWYU pragma: keep
 
+#include <arith_uint256.h>
 #include <chain.h>
 #include <chainparams.h>
 #include <chainparamsbase.h>
@@ -147,15 +148,60 @@ static RPCHelpMan getnetworkhashps()
 /** Attach quantum_signatures when mainnet policy requires them (shared by pool RPC and generate). */
 static bool MaybeSignBlockQuantum(CBlock& block, bool* quantum_signed_out = nullptr);
 
+/** Log PoW parameters and verify RPC mining vs consensus hash for the template header. */
+static void LogRandomXRpcPowDiagnostics(int next_height, const CBlock& block,
+    const Consensus::Params& params, RandomXMiningContext* ctx)
+{
+    const std::optional<arith_uint256> target{DeriveTarget(block.nBits, params.powLimit)};
+    const std::string target_hex{target ? target->GetHex() : "invalid"};
+    const std::string pow_limit_hex{UintToArith256(params.powLimit).GetHex()};
+    const bool soft_launch{params.fSoftLaunch && next_height >= 0 &&
+                           next_height <= params.nSoftLaunchHeight};
+
+    LogInfo("RandomX RPC PoW: height=%d nBits=%08x target=%s powLimit=%s soft_launch=%d maxtries_default=%llu\n",
+            next_height, block.nBits, target_hex, pow_limit_hex, soft_launch ? 1 : 0,
+            static_cast<unsigned long long>(DEFAULT_MAX_TRIES));
+
+    if (!ctx || ctx->vms.empty()) {
+        LogWarning("RandomX RPC PoW: no mining VM; falling back to validation RandomX path\n");
+        return;
+    }
+
+    const CBlockHeader header{block.GetBlockHeader()};
+    uint256 mining_hash;
+    RandomXMiningHash(ctx, 0, header, mining_hash);
+    const uint256 consensus_hash{RandomXHash(header)};
+    const bool hash_match{mining_hash == consensus_hash};
+    bool passes{false};
+    if (target) {
+        passes = UintToArith256(mining_hash) <= *target;
+    }
+
+    LogInfo("RandomX RPC PoW: template merkle=%s time=%u nonce=%u mining_hash=%s consensus_hash=%s match=%d hash_le_target=%d\n",
+            block.hashMerkleRoot.ToString(), block.nTime, block.nNonce,
+            mining_hash.ToString(), consensus_hash.ToString(), hash_match ? 1 : 0, passes ? 1 : 0);
+
+    if (!hash_match) {
+        LogError("RandomX RPC PoW: mining VM hash != validation RandomXHash — block would be rejected if mined\n");
+    }
+    if (block.nBits == 0x1e0ffff0) {
+        LogInfo("RandomX RPC PoW: at nBits=1e0ffff0 expect ~1.05e6 RandomX hashes per block on average (raise maxtries if RPC returns [])\n");
+    }
+}
+
 /**
  * Search for a valid RandomX nonce using per-thread VMs (not the global validation mutex).
  * Uses parallel nonce search when multiple mining VMs are available.
  */
-static bool FindBlockProofOfWork(CBlock& block, const Consensus::Params& params, uint64_t& max_tries, const util::SignalInterrupt& interrupt)
+static bool FindBlockProofOfWork(CBlock& block, const Consensus::Params& params, uint64_t& max_tries,
+    const util::SignalInterrupt& interrupt, int next_height)
 {
     // One RPC PoW search at a time (http workers can overlap; VMs are not thread-safe).
     std::lock_guard<std::mutex> rpc_mining_lock{RpcMiningExecMutex()};
     RandomXMiningContext* ctx = GetOrCreateRpcMiningContext(Params().IsTestChain());
+    if (!Params().IsTestChain()) {
+        LogRandomXRpcPowDiagnostics(next_height, block, params, ctx);
+    }
     if (!ctx || ctx->vms.empty()) {
         while (max_tries > 0 && block.nNonce < std::numeric_limits<uint32_t>::max() &&
                !CheckProofOfWork(block, block.nBits, params) && !static_cast<bool>(interrupt)) {
@@ -169,13 +215,30 @@ static bool FindBlockProofOfWork(CBlock& block, const Consensus::Params& params,
     const size_t num_threads = ctx->vms.size();
     if (num_threads == 1) {
         uint256 hash;
+        uint64_t hashes_done = 0;
         while (max_tries > 0 && block.nNonce < std::numeric_limits<uint32_t>::max() && !static_cast<bool>(interrupt)) {
             RandomXMiningHash(ctx, 0, block, hash);
             if (CheckProofOfWorkImpl(hash, block.nBits, params)) {
+                LogInfo("RandomX RPC: found block PoW after %lu hashes (nonce=%u)\n", hashes_done + 1, block.nNonce);
                 return true;
             }
             ++block.nNonce;
             --max_tries;
+            ++hashes_done;
+            if (!Params().IsTestChain() && (hashes_done == 1 || hashes_done % 50000 == 0)) {
+                const auto target{DeriveTarget(block.nBits, params.powLimit)};
+                bool sample_pass{false};
+                if (target) {
+                    sample_pass = UintToArith256(hash) <= *target;
+                }
+                LogInfo("RandomX RPC: mainnet PoW search height=%d %lu hashes (nonce=%u) mining_hash=%s hash_le_target=%d\n",
+                        next_height, hashes_done, block.nNonce, hash.ToString(), sample_pass ? 1 : 0);
+            }
+        }
+        if (!Params().IsTestChain()) {
+            LogWarning("RandomX RPC PoW: exhausted search at height=%d nBits=%08x after %lu hashes (no valid nonce; "
+                       "at 1e0ffff0 expect ~1.05e6 hashes mean — raise maxtries or use -rpcclienttimeout=0)\n",
+                       next_height, block.nBits, hashes_done);
         }
         return false;
     }
@@ -231,7 +294,13 @@ static bool GenerateBlock(ChainstateManager& chainman, CBlock& block, uint64_t& 
     block_out.reset();
     block.hashMerkleRoot = BlockMerkleRoot(block);
 
-    if (!FindBlockProofOfWork(block, chainman.GetConsensus(), max_tries, chainman.m_interrupt)) {
+    int next_height{-1};
+    {
+        LOCK(cs_main);
+        next_height = chainman.ActiveChain().Height() + 1;
+    }
+
+    if (!FindBlockProofOfWork(block, chainman.GetConsensus(), max_tries, chainman.m_interrupt, next_height)) {
         return false;
     }
 

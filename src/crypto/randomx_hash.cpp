@@ -370,11 +370,32 @@ RandomXMiningContext* GetOrCreateRpcMiningContext(bool is_test_chain)
         return g_rpc_mining_ctx;
     }
 
-    // RPC generatetoaddress: one VM on the shared validation dataset. Parallel nonce
-    // search with multiple VMs caused segfaults (VM/dataset races across RPC workers).
-    (void)is_test_chain;
-    InitializeRandomX(false);
-    g_rpc_mining_ctx = CreateMiningContext(/*threads=*/1, /*disable_jit=*/false, /*share_global_dataset=*/true);
+    // Always one VM: parallel RPC mining (multiple VMs) segfaulted on mainnet.
+    // Test chains: attach to the validation dataset (fast init for functional tests).
+    // Mainnet: dedicated dataset/cache so PoW search does not take randomx_mutex on
+    // every hash (that path was ~1 H/s and caused generatetoaddress RPC timeouts).
+    constexpr size_t RPC_MINING_THREADS = 1;
+    if (is_test_chain) {
+        InitializeRandomX(false);
+        g_rpc_mining_ctx = CreateMiningContext(RPC_MINING_THREADS, /*disable_jit=*/false, /*share_global_dataset=*/true);
+    } else {
+        g_rpc_mining_ctx = CreateMiningContext(RPC_MINING_THREADS, /*disable_jit=*/false, /*share_global_dataset=*/false);
+        if (g_rpc_mining_ctx) {
+            CBlockHeader probe;
+            probe.SetNull();
+            probe.nNonce = 42;
+            uint256 mining_hash;
+            RandomXMiningHash(g_rpc_mining_ctx, 0, probe, mining_hash);
+            InitializeRandomX(false);
+            const uint256 consensus_hash = RandomXHash(probe);
+            if (mining_hash != consensus_hash) {
+                LogError("RandomX: RPC mining hash mismatch (mining %s != consensus %s)\n",
+                         mining_hash.ToString(), consensus_hash.ToString());
+                DestroyMiningContext(g_rpc_mining_ctx);
+                g_rpc_mining_ctx = nullptr;
+            }
+        }
+    }
     return g_rpc_mining_ctx;
 }
 
