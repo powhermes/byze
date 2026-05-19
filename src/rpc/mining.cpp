@@ -153,6 +153,8 @@ static bool MaybeSignBlockQuantum(CBlock& block, bool* quantum_signed_out = null
  */
 static bool FindBlockProofOfWork(CBlock& block, const Consensus::Params& params, uint64_t& max_tries, const util::SignalInterrupt& interrupt)
 {
+    // One RPC PoW search at a time (http workers can overlap; VMs are not thread-safe).
+    std::lock_guard<std::mutex> rpc_mining_lock{RpcMiningExecMutex()};
     RandomXMiningContext* ctx = GetOrCreateRpcMiningContext(Params().IsTestChain());
     if (!ctx || ctx->vms.empty()) {
         while (max_tries > 0 && block.nNonce < std::numeric_limits<uint32_t>::max() &&

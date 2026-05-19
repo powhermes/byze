@@ -7,6 +7,7 @@
 
 #include <uint256.h>
 #include <vector>
+#include <mutex>
 
 class CBlockHeader;
 
@@ -87,6 +88,9 @@ RandomXMiningContext* GetOrCreateRpcMiningContext(bool is_test_chain);
 
 /** Release RPC mining context (called from CleanupRandomXResources). */
 void DestroyRpcMiningContext();
+
+/** Mutex held for the duration of RPC generatetoaddress PoW search. */
+std::mutex& RpcMiningExecMutex();
 
 #endif // BITCOIN_CRYPTO_RANDOMX_HASH_H
 

@@ -44,6 +44,8 @@ static bool randomx_initialized = false;
 
 static RandomXMiningContext* g_rpc_mining_ctx = nullptr;
 static std::mutex g_rpc_ctx_mutex;
+/** Serializes RPC PoW search; VMs are not safe across concurrent RPC handlers. */
+static std::mutex g_rpc_mining_exec_mutex;
 
 } // anonymous namespace
 
@@ -325,6 +327,12 @@ void RandomXMiningHash(
         out.SetNull();
         return;
     }
+
+    // When attached to the global validation cache/dataset, coordinate with RandomXHash.
+    std::unique_lock<std::mutex> shared_lock;
+    if (!ctx->owns_cache_dataset) {
+        shared_lock = std::unique_lock<std::mutex>{randomx_mutex};
+    }
     
     // Serialize block header (80 bytes for Bitcoin-style headers)
     // Format: version (4) + prevBlock (32) + merkleRoot (32) + time (4) + bits (4) + nonce (4) = 80 bytes
@@ -362,19 +370,17 @@ RandomXMiningContext* GetOrCreateRpcMiningContext(bool is_test_chain)
         return g_rpc_mining_ctx;
     }
 
-    unsigned int hw = std::thread::hardware_concurrency();
-    if (hw == 0) hw = 1;
-    size_t threads = std::max<size_t>(1, std::min<size_t>(4, static_cast<size_t>(hw)));
-    if (!is_test_chain) {
-        // Mainnet RPC mining gets a dedicated dataset; regtest shares the validation dataset.
-        threads = std::max<size_t>(1, threads);
-    }
-
-    if (is_test_chain) {
-        InitializeRandomX(false);
-    }
-    g_rpc_mining_ctx = CreateMiningContext(threads, /*disable_jit=*/false, is_test_chain);
+    // RPC generatetoaddress: one VM on the shared validation dataset. Parallel nonce
+    // search with multiple VMs caused segfaults (VM/dataset races across RPC workers).
+    (void)is_test_chain;
+    InitializeRandomX(false);
+    g_rpc_mining_ctx = CreateMiningContext(/*threads=*/1, /*disable_jit=*/false, /*share_global_dataset=*/true);
     return g_rpc_mining_ctx;
+}
+
+std::mutex& RpcMiningExecMutex()
+{
+    return g_rpc_mining_exec_mutex;
 }
 
 void CleanupRandomXResources()
