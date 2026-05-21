@@ -215,9 +215,9 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
             {
                 return SendCoinsReturn(AmountWithFeeExceedsBalance);
             }
-            Q_EMIT message(tr("Send Coins"), QString::fromStdString(util::ErrorString(res).translated),
-                CClientUIInterface::MSG_ERROR);
-            return TransactionCreationFailed;
+            const QString err_msg = QString::fromStdString(util::ErrorString(res).translated);
+            Q_EMIT message(tr("Send Coins"), err_msg, CClientUIInterface::MSG_ERROR);
+            return SendCoinsReturn{TransactionCreationFailed, err_msg};
         }
 
         // Reject absurdly high fee. (This can never happen because the

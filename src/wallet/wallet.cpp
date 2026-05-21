@@ -3487,6 +3487,9 @@ bool CWallet::Unlock(const CKeyingMaterial& vMasterKeyIn)
             }
         }
         if (!TryLoadQuantumManagerAfterUnlock()) {
+            vMasterKey.clear();
+            WipeQuantumSecretsFromMemory();
+            WalletLogPrintf("%s: wallet decryption succeeded but quantum signing keys could not be loaded\n", __func__);
             return false;
         }
         {

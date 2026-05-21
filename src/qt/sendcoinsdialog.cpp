@@ -272,13 +272,6 @@ bool SendCoinsDialog::PrepareSendText(QString& question_string, QString& informa
     }
 
     fNewRecipientAllowed = false;
-    WalletModel::UnlockContext ctx(model->requestUnlock());
-    if(!ctx.isValid())
-    {
-        // Unlock wallet was cancelled
-        fNewRecipientAllowed = true;
-        return false;
-    }
 
     // prepare transaction for getting txFee earlier
     m_current_transaction = std::make_unique<WalletModelTransaction>(recipients);
@@ -481,6 +474,12 @@ void SendCoinsDialog::sendButtonClicked([[maybe_unused]] bool checked)
 {
     if(!model || !model->getOptionsModel())
         return;
+
+    // Keep the wallet unlocked for the whole send flow (prepare + sign + broadcast).
+    WalletModel::UnlockContext unlock_ctx(model->requestUnlock());
+    if (!unlock_ctx.isValid()) {
+        return;
+    }
 
     QString question_string, informative_text, detailed_text;
     if (!PrepareSendText(question_string, informative_text, detailed_text)) return;
@@ -749,7 +748,9 @@ void SendCoinsDialog::processSendCoinsReturn(const WalletModel::SendCoinsReturn 
         msgParams.first = tr("Duplicate address found: addresses should only be used once each.");
         break;
     case WalletModel::TransactionCreationFailed:
-        msgParams.first = tr("Transaction creation failed!");
+        msgParams.first = sendCoinsReturn.reasonCommitFailed.isEmpty()
+            ? tr("Transaction creation failed. Unlock the wallet first; quantum Taproot spends need signing keys in memory (getwalletinfo: quantum_can_sign).")
+            : sendCoinsReturn.reasonCommitFailed;
         msgParams.second = CClientUIInterface::MSG_ERROR;
         break;
     case WalletModel::AbsurdFee:

@@ -330,6 +330,7 @@ static UniValue generateBlocks(ChainstateManager& chainman, Mining& miner, const
             throw JSONRPCError(RPC_INTERNAL_ERROR, "Couldn't create new block");
         }
         CBlock block{tmpl->getBlock()};
+        RegenerateCommitments(block, chainman);
 
         std::shared_ptr<const CBlock> block_out;
         if (!GenerateBlock(chainman, block, nMaxTries, block_out, /*process_new_block=*/true)) {

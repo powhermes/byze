@@ -1443,8 +1443,27 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
         return util::Error{error};
     }
 
-    if (sign && !wallet.SignTransaction(txNew)) {
-        return util::Error{_("Signing transaction failed")};
+    if (sign) {
+        std::map<COutPoint, Coin> sign_coins;
+        for (const auto& input : txNew.vin) {
+            const auto mi = wallet.mapWallet.find(input.prevout.hash);
+            if (mi == wallet.mapWallet.end() || input.prevout.n >= mi->second.tx->vout.size()) {
+                return util::Error{_("Signing transaction failed: missing input data")};
+            }
+            const CWalletTx& wtx = mi->second;
+            const int prev_height = wtx.state<TxStateConfirmed>() ? wtx.state<TxStateConfirmed>()->confirmed_block_height : 0;
+            sign_coins[input.prevout] = Coin(wtx.tx->vout[input.prevout.n], prev_height, wtx.IsCoinBase());
+        }
+        std::map<int, bilingual_str> input_errors;
+        if (!wallet.SignTransaction(txNew, sign_coins, SIGHASH_DEFAULT, input_errors)) {
+            if (!wallet.QuantumCanSign()) {
+                return util::Error{_("Signing transaction failed: unlock the wallet to load quantum signing keys")};
+            }
+            if (!input_errors.empty()) {
+                return util::Error{strprintf(_("Signing transaction failed: %s"), input_errors.begin()->second.translated)};
+            }
+            return util::Error{_("Signing transaction failed")};
+        }
     }
 
     // Return the constructed transaction data.

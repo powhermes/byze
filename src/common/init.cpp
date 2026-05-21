@@ -12,9 +12,36 @@
 
 #include <algorithm>
 #include <exception>
+#include <fstream>
 #include <optional>
 
 namespace common {
+
+static void WriteDefaultConfigFileIfMissing(const fs::path& config_path)
+{
+    if (fs::exists(config_path)) {
+        return;
+    }
+    std::ofstream out{fs::PathToString(config_path)};
+    if (!out) {
+        LogWarning("Could not create default configuration file %s\n", fs::PathToString(config_path));
+        return;
+    }
+    out <<
+        "# Byze node configuration (auto-generated on first start)\n"
+        "# Edit or remove lines you do not need.\n"
+        "\n"
+        "# RPC server (GUI and byze-cli)\n"
+        "server=1\n"
+        "\n"
+        "# Young-chain sends: use fallback fee until estimates exist (0.0001 BYZ/kvB)\n"
+        "fallbackfee=0.0001\n"
+        "\n"
+        "# Do not enable txindex with pruning; neither is required for normal wallet use.\n"
+        "# txindex=1\n"
+        "\n";
+    LogInfo("Created default configuration file: %s\n", fs::PathToString(config_path));
+}
 std::optional<ConfigError> InitConfig(ArgsManager& args, SettingsAbortFn settings_abort_fn)
 {
     try {
@@ -33,6 +60,10 @@ std::optional<ConfigError> InitConfig(ArgsManager& args, SettingsAbortFn setting
         // bitcoin.conf file just ignores the other file.)
         const fs::path orig_datadir_path{args.GetDataDirBase()};
         const fs::path orig_config_path{AbsPathForConfigVal(args, args.GetPathArg("-conf", BITCOIN_CONF_FILENAME), /*net_specific=*/false)};
+
+        if (!args.IsArgSet("-conf") && !args.GetBoolArg("-noconf", false)) {
+            WriteDefaultConfigFileIfMissing(orig_config_path);
+        }
 
         std::string error;
         if (!args.ReadConfigFiles(error, true)) {
@@ -62,7 +93,7 @@ std::optional<ConfigError> InitConfig(ArgsManager& args, SettingsAbortFn setting
             fs::create_directories(net_path / "wallets");
         }
 
-        // Show an error or warn/log if there is a bitcoin.conf file in the
+        // Show an error or warn/log if there is a byze.conf file in the
         // datadir that is being ignored.
         const fs::path base_config_path = base_path / BITCOIN_CONF_FILENAME;
         if (fs::exists(base_config_path)) {
