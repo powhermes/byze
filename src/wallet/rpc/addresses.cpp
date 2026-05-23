@@ -76,11 +76,11 @@ RPCHelpMan getnewaddress()
     if (!pwallet->EnsureQuantumKeysForReceive()) {
         throw JSONRPCError(RPC_WALLET_ERROR, "Could not persist quantum signing keys to the wallet database; refusing to create an address that depends on external key files.");
     }
-    const auto op_dest = pwallet->GetQuantumReceiveDestination();
+
+    const auto op_dest = pwallet->GetNewDestination(output_type, label);
     if (!op_dest) {
-        throw JSONRPCError(RPC_WALLET_ERROR, "Could not derive quantum-safe receive address from wallet database state.");
+        throw JSONRPCError(RPC_WALLET_KEYPOOL_RAN_OUT, util::ErrorString(op_dest).original);
     }
-    pwallet->SetAddressBook(*op_dest, label, AddressPurpose::RECEIVE);
 
     return EncodeDestination(*op_dest);
 },
@@ -131,11 +131,12 @@ RPCHelpMan getrawchangeaddress()
     if (!pwallet->EnsureQuantumKeysForReceive()) {
         throw JSONRPCError(RPC_WALLET_ERROR, "Could not persist quantum signing keys to the wallet database; refusing to create a change address that depends on external key files.");
     }
-    const auto op_dest = pwallet->GetQuantumReceiveDestination();
+
+    const auto op_dest = pwallet->GetNewChangeDestination(output_type);
     if (!op_dest) {
-        throw JSONRPCError(RPC_WALLET_ERROR, "Could not derive quantum-safe change address from wallet database state.");
+        throw JSONRPCError(RPC_WALLET_KEYPOOL_RAN_OUT, util::ErrorString(op_dest).original);
     }
-    pwallet->SetAddressBook(*op_dest, "", AddressPurpose::RECEIVE);
+
     return EncodeDestination(*op_dest);
 },
     };

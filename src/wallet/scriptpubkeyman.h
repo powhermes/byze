@@ -54,6 +54,8 @@ public:
     virtual bool IsLocked() const = 0;
     //! Callback function for after TopUp completes containing any scripts that were added by a SPKMan
     virtual void TopUpCallback(const std::set<CScript>&, ScriptPubKeyMan*) = 0;
+    /** Byze: taproot output for a descriptor receive/change index (nullopt = use descriptor expansion). */
+    virtual std::optional<CTxDestination> GetQuantumTaprootAtIndex(uint32_t index) const { return std::nullopt; }
 };
 
 //! Constant representing an unknown spkm creation time
@@ -372,6 +374,9 @@ public:
     std::unique_ptr<CKeyMetadata> GetMetadata(const CTxDestination& dest) const override;
 
     bool CanGetAddresses(bool internal = false) const override;
+
+    /** Scripts issued by this manager mapped to descriptor pool indices (for quantum receive lookup). */
+    const ScriptPubKeyMap& GetScriptPubKeysMap() const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man) { return m_map_script_pub_keys; }
 
     std::unique_ptr<SigningProvider> GetSolvingProvider(const CScript& script) const override;
 

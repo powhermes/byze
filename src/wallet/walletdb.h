@@ -91,6 +91,8 @@ extern const std::string MNEMONIC;
 extern const std::string QUANTUM_STATE;
 /** Byze: optional XMSS index reservation during sign (uint32_t). */
 extern const std::string QUANTUM_PENDING;
+/** Byze: per-receive-index quantum signing state (serialized dual-key blob). */
+extern const std::string QUANTUM_INDEX_STATE;
 
 // Keys in this set pertain only to the legacy wallet (LegacyScriptPubKeyMan) and are removed during migration from legacy to descriptors.
 extern const std::unordered_set<std::string> LEGACY_TYPES;
@@ -285,6 +287,8 @@ public:
     bool WriteQuantumPending(uint32_t index);
     bool ReadQuantumPending(uint32_t& index);
     bool EraseQuantumPending();
+    bool WriteQuantumIndexState(uint32_t receive_index, const std::vector<unsigned char>& data);
+    bool ReadQuantumIndexState(uint32_t receive_index, std::vector<unsigned char>& data);
     //! Begin a new transaction
     bool TxnBegin();
     //! Commit current transaction

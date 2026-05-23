@@ -852,10 +852,16 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const 
             return util::Error{_("Error: Keypool ran out, please call keypoolrefill first")};
         }
 
+        const int32_t pool_index = m_wallet_descriptor.next_index;
+        if (const std::optional<CTxDestination> qdest = m_storage.GetQuantumTaprootAtIndex(pool_index)) {
+            scripts_temp[0] = GetScriptForDestination(*qdest);
+        }
+
         CTxDestination dest;
         if (!ExtractDestination(scripts_temp[0], dest)) {
             return util::Error{_("Error: Cannot extract destination from the generated scriptpubkey")}; // shouldn't happen
         }
+        m_map_script_pub_keys[scripts_temp[0]] = pool_index;
         m_wallet_descriptor.next_index++;
         WalletBatch(m_storage.GetDatabase()).WriteDescriptor(GetID(), m_wallet_descriptor);
         return dest;
@@ -1032,6 +1038,9 @@ bool DescriptorScriptPubKeyMan::TopUpWithDB(WalletBatch& batch, unsigned int siz
         // Maybe we have a cached xpub and we can expand from the cache first
         if (!m_wallet_descriptor.descriptor->ExpandFromCache(i, m_wallet_descriptor.cache, scripts_temp, out_keys)) {
             if (!m_wallet_descriptor.descriptor->Expand(i, provider, scripts_temp, out_keys, &temp_cache)) return false;
+        }
+        if (const std::optional<CTxDestination> qdest = m_storage.GetQuantumTaprootAtIndex(i)) {
+            scripts_temp[0] = GetScriptForDestination(*qdest);
         }
         // Add all of the scriptPubKeys to the scriptPubKey set
         new_spks.insert(scripts_temp.begin(), scripts_temp.end());

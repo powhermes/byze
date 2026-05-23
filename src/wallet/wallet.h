@@ -322,6 +322,9 @@ private:
 
     /** Byze: unpack QUANTUM_STATE blob into members (does not read legacy datadir files). */
     DBErrors ApplyQuantumStateFromPackedBlob(const std::vector<unsigned char>& raw) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool UnpackQuantumBlobToManager(const std::vector<unsigned char>& packed, crypto::quantum_safe_manager& mgr) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool LoadQuantumManagerForReceiveIndex(uint32_t receive_index, crypto::quantum_safe_manager& mgr) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool PersistQuantumManagerForReceiveIndex(uint32_t receive_index, crypto::quantum_safe_manager& mgr) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     std::atomic<bool> fAbortRescan{false};
     std::atomic<bool> fScanningWallet{false}; // controlled by WalletRescanReserver
@@ -737,6 +740,9 @@ public:
     void MaybeWarnMnemonicDescriptorMismatch(std::vector<bilingual_str>& warnings) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: taproot destination for this wallet's quantum receive program (requires existing keys). */
     std::optional<CTxDestination> GetQuantumReceiveDestination() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: deterministic quantum taproot output for a descriptor pool index. */
+    std::optional<CTxDestination> GetQuantumTaprootAtIndex(uint32_t index) const override EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    std::optional<uint32_t> FindReceiveIndexForQuantumProgram(std::span<const unsigned char> program) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     SigningResult SignMessage(const std::string& message, const PKHash& pkhash, std::string& str_sig) const;
 

@@ -63,6 +63,7 @@ const std::string WATCHS{"watchs"};
 const std::string MNEMONIC{"mnemonic"};
 const std::string QUANTUM_STATE{"quantumstate"};
 const std::string QUANTUM_PENDING{"quantumpend"};
+const std::string QUANTUM_INDEX_STATE{"quantumindex"};
 const std::unordered_set<std::string> LEGACY_TYPES{CRYPTED_KEY, CSCRIPT, DEFAULTKEY, HDCHAIN, KEYMETA, KEY, OLD_KEY, POOL, WATCHMETA, WATCHS};
 } // namespace DBKeys
 
@@ -1313,6 +1314,16 @@ bool WalletBatch::ReadQuantumPending(uint32_t& index)
 bool WalletBatch::EraseQuantumPending()
 {
     return EraseIC(DBKeys::QUANTUM_PENDING);
+}
+
+bool WalletBatch::WriteQuantumIndexState(uint32_t receive_index, const std::vector<unsigned char>& data)
+{
+    return WriteIC(std::make_pair(DBKeys::QUANTUM_INDEX_STATE, receive_index), data);
+}
+
+bool WalletBatch::ReadQuantumIndexState(uint32_t receive_index, std::vector<unsigned char>& data)
+{
+    return m_batch->Read(std::make_pair(DBKeys::QUANTUM_INDEX_STATE, receive_index), data);
 }
 
 bool WalletBatch::EraseRecords(const std::unordered_set<std::string>& types)
