@@ -56,6 +56,7 @@ public:
     virtual void TopUpCallback(const std::set<CScript>&, ScriptPubKeyMan*) = 0;
     /** Byze: taproot output for a descriptor receive/change index (nullopt = use descriptor expansion). */
     virtual std::optional<CTxDestination> GetQuantumTaprootAtIndex(uint32_t index) const { return std::nullopt; }
+    virtual bool EnsureQuantumIndexStateForReceiveIndex(uint32_t index) { return true; }
 };
 
 //! Constant representing an unknown spkm creation time

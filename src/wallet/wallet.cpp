@@ -2271,19 +2271,26 @@ bool CWallet::SignTransaction(CMutableTransaction& tx, const std::map<COutPoint,
         }
     }
 
-    // Try to sign with all ScriptPubKeyMans
+    // Byze: quantum v1 taproot spends must use DB-backed quantum keys. Descriptor
+    // ScriptPubKeyMans only know Schnorr/MuSig2 and can leave invalid partial witnesses
+    // on the transaction when they run first.
+    WalletQuantumSigningProvider wallet_quantum_provider(*this);
+    for (auto& txin : tx.vin) {
+        txin.scriptSig.clear();
+        txin.scriptWitness.SetNull();
+    }
+    if (::SignTransaction(tx, &wallet_quantum_provider, coins, sighash, input_errors)) {
+        return true;
+    }
+
+    // Non-quantum inputs are rejected above; clear errors before legacy attempt.
+    input_errors.clear();
     for (ScriptPubKeyMan* spk_man : GetAllScriptPubKeyMans()) {
-        // spk_man->SignTransaction will return true if the transaction is complete,
-        // so we can exit early and return true if that happens
         if (spk_man->SignTransaction(tx, coins, sighash, input_errors)) {
             return true;
         }
     }
-
-    // Byze: quantum spending is implemented as witness v1 programs and is not backed by
-    // ScriptPubKeyMans. As a fallback, try signing with the quantum-capable provider.
-    WalletQuantumSigningProvider wallet_quantum_provider(*this);
-    return ::SignTransaction(tx, &wallet_quantum_provider, coins, sighash, input_errors);
+    return false;
 }
 
 std::optional<PSBTError> CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& complete, std::optional<int> sighash_type, bool sign, bool bip32derivs, size_t * n_signed, bool finalize) const
@@ -2338,6 +2345,30 @@ std::optional<PSBTError> CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bo
 
         if (n_signed) {
             (*n_signed) += n_signed_this_spkm;
+        }
+    }
+
+    if (sign) {
+        WalletQuantumSigningProvider quantum_provider(*this);
+        for (size_t i = 0; i < psbtx.tx->vin.size(); ++i) {
+            const CTxIn& txin = psbtx.tx->vin[i];
+            const CTxOut* prev_txout{nullptr};
+            const auto& input = psbtx.inputs.at(i);
+            if (!input.witness_utxo.IsNull()) {
+                prev_txout = &input.witness_utxo;
+            } else if (input.non_witness_utxo && txin.prevout.n < input.non_witness_utxo->vout.size()) {
+                prev_txout = &input.non_witness_utxo->vout.at(txin.prevout.n);
+            }
+            if (!prev_txout || !IsQuantumMine(prev_txout->scriptPubKey)) {
+                continue;
+            }
+            const PSBTError qerr = SignPSBTInput(quantum_provider, psbtx, static_cast<int>(i), &txdata, sighash_type, nullptr, finalize);
+            if (qerr != PSBTError::OK) {
+                return qerr;
+            }
+            if (n_signed) {
+                ++(*n_signed);
+            }
         }
     }
 

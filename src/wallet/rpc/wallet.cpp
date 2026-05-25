@@ -160,6 +160,43 @@ static RPCHelpMan getwalletinfo()
     };
 }
 
+static RPCHelpMan repairquantumindices()
+{
+    return RPCHelpMan{
+        "repairquantumindices",
+        "Backfill per-receive-index quantum signing state (quantumindex/*) for all used external descriptor indices.\n"
+        "Safe to run on pool wallets with legacy coinbase outputs; idempotent.\n",
+        {},
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::NUM, "external_indices", "Number of external descriptor indices scanned"},
+                {RPCResult::Type::BOOL, "quantum_can_sign", "Whether quantum signing material is available after repair"},
+            }},
+        RPCExamples{HelpExampleCli("repairquantumindices", "")},
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+{
+    const std::shared_ptr<CWallet> pwallet = GetWalletForJSONRPCRequest(request);
+    if (!pwallet) return UniValue::VNULL;
+
+    LOCK(pwallet->cs_wallet);
+    const ScriptPubKeyMan* raw = pwallet->GetScriptPubKeyMan(OutputType::BECH32M, /*internal=*/false);
+    const auto* spkm = dynamic_cast<const DescriptorScriptPubKeyMan*>(raw);
+    int32_t external_indices = 0;
+    if (spkm) {
+        LOCK(spkm->cs_desc_man);
+        external_indices = spkm->GetWalletDescriptor().next_index;
+    }
+    pwallet->RepairQuantumReceiveIndexStates();
+
+    UniValue obj(UniValue::VOBJ);
+    obj.pushKV("external_indices", external_indices);
+    obj.pushKV("quantum_can_sign", pwallet->QuantumCanSign());
+    return obj;
+},
+    };
+}
+
 static RPCHelpMan helpwallet()
 {
     return RPCHelpMan{
@@ -1135,6 +1172,7 @@ std::span<const CRPCCommand> GetWalletRPCCommands()
         {"wallet", &gettransaction},
         {"wallet", &getbalances},
         {"wallet", &getwalletinfo},
+        {"wallet", &repairquantumindices},
         {"wallet", &getrecoveryphrase},
         {"wallet", &importdescriptors},
         {"wallet", &importprunedfunds},

@@ -479,16 +479,23 @@ RPCHelpMan getaddressinfo()
     bool mine = pwallet->IsMine(dest);
     ret.pushKV("ismine", mine);
 
+    bool solvable = false;
     if (provider) {
         auto inferred = InferDescriptor(scriptPubKey, *provider);
-        bool solvable = inferred->IsSolvable();
-        ret.pushKV("solvable", solvable);
+        solvable = inferred->IsSolvable();
         if (solvable) {
             ret.pushKV("desc", inferred->ToString());
         }
-    } else {
-        ret.pushKV("solvable", false);
     }
+    if (!solvable && pwallet->IsQuantumSolvable(scriptPubKey)) {
+        solvable = true;
+        int witnessversion{-1};
+        std::vector<unsigned char> witnessprogram;
+        if (scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram) && witnessversion == 1) {
+            ret.pushKV("desc", strprintf("quantum_program(%s)", HexStr(witnessprogram)));
+        }
+    }
+    ret.pushKV("solvable", solvable);
 
     const auto& spk_mans = pwallet->GetScriptPubKeyMans(scriptPubKey);
     // In most cases there is only one matching ScriptPubKey manager and we can't resolve ambiguity in a better way

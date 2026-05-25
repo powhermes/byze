@@ -743,6 +743,12 @@ public:
     /** Byze: deterministic quantum taproot output for a descriptor pool index. */
     std::optional<CTxDestination> GetQuantumTaprootAtIndex(uint32_t index) const override EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     std::optional<uint32_t> FindReceiveIndexForQuantumProgram(std::span<const unsigned char> program) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: true when wallet DB can sign this quantum scriptPubKey (independent of descriptor inference). */
+    bool IsQuantumSolvable(const CScript& script) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: persist per-receive-index quantum state if missing (idempotent). */
+    bool EnsureQuantumIndexStateForReceiveIndex(uint32_t receive_index) override EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: backfill quantumindex records for all used external descriptor pool indices. */
+    void RepairQuantumReceiveIndexStates() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     SigningResult SignMessage(const std::string& message, const PKHash& pkhash, std::string& str_sig) const;
 

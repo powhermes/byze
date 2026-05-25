@@ -864,6 +864,9 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const 
         m_map_script_pub_keys[scripts_temp[0]] = pool_index;
         m_wallet_descriptor.next_index++;
         WalletBatch(m_storage.GetDatabase()).WriteDescriptor(GetID(), m_wallet_descriptor);
+        if (!m_storage.EnsureQuantumIndexStateForReceiveIndex(static_cast<uint32_t>(pool_index))) {
+            return util::Error{_("Error: failed to persist quantum signing state for new address")};
+        }
         return dest;
     }
 }
