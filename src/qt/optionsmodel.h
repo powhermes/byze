@@ -128,7 +128,7 @@ private:
     bool m_show_tray_icon;
     bool fMinimizeToTray;
     bool fMinimizeOnClose;
-    bool m_dark_mode{false};
+    bool m_dark_mode{true};
     QString language;
     BitcoinUnit m_display_bitcoin_unit;
     QString strThirdPartyTxUrls;

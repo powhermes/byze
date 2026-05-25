@@ -23,6 +23,7 @@
 #include <QPainter>
 #include <QRadialGradient>
 #include <QScreen>
+#include <qt/guiutil.h>
 
 
 SplashScreen::SplashScreen(const NetworkStyle* networkStyle)
@@ -53,13 +54,23 @@ SplashScreen::SplashScreen(const NetworkStyle* networkStyle)
     // change to HiDPI if it makes sense
     pixmap.setDevicePixelRatio(devicePixelRatio);
 
+    const bool dark_splash = GUIUtil::IsDarkModeEnabled();
+    if (dark_splash) {
+        setStyleSheet(QStringLiteral("background-color: #181818;"));
+    }
+
     QPainter pixPaint(&pixmap);
-    pixPaint.setPen(QColor(100,100,100));
+    pixPaint.setPen(dark_splash ? QColor(200, 200, 200) : QColor(100, 100, 100));
 
     // draw a slightly radial gradient
     QRadialGradient gradient(QPoint(0,0), splashSize.width()/devicePixelRatio);
-    gradient.setColorAt(0, Qt::white);
-    gradient.setColorAt(1, QColor(247,247,247));
+    if (dark_splash) {
+        gradient.setColorAt(0, QColor(48, 48, 48));
+        gradient.setColorAt(1, QColor(24, 24, 24));
+    } else {
+        gradient.setColorAt(0, Qt::white);
+        gradient.setColorAt(1, QColor(247, 247, 247));
+    }
     QRect rGradient(QPoint(0,0), splashSize);
     pixPaint.fillRect(rGradient, gradient);
 

@@ -18,8 +18,10 @@
 #include <cstdio>
 
 #include <QCloseEvent>
+#include <QIcon>
 #include <QLabel>
 #include <QMainWindow>
+#include <QPixmap>
 #include <QRegularExpression>
 #include <QString>
 #include <QTextCursor>
@@ -33,10 +35,16 @@ HelpMessageDialog::HelpMessageDialog(QWidget *parent, bool about) :
 {
     ui->setupUi(this);
 
+    const QPixmap about_icon(QStringLiteral(":/icons/bitcoin"));
+    if (!about_icon.isNull()) {
+        ui->aboutLogo->setPixmap(about_icon.scaled(96, 96, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    }
+
     QString version = QString{CLIENT_NAME} + " " + tr("version") + " " + QString::fromStdString(FormatFullVersion());
 
     if (about)
     {
+        setWindowIcon(QIcon(QStringLiteral(":/icons/bitcoin")));
         setWindowTitle(tr("About %1").arg(CLIENT_NAME));
 
         std::string licenseInfo = LicenseInfo();

@@ -21,6 +21,7 @@
 #include <QApplication>
 #include <QDateTime>
 #include <QPainter>
+#include <QPixmap>
 #include <QStatusTipEvent>
 
 #include <algorithm>
@@ -138,6 +139,11 @@ OverviewPage::OverviewPage(const PlatformStyle *platformStyle, QWidget *parent) 
 {
     ui->setupUi(this);
 
+    const QPixmap brand_icon(QStringLiteral(":/icons/bitcoin"));
+    if (!brand_icon.isNull()) {
+        ui->labelBrandIcon->setPixmap(brand_icon.scaled(48, 48, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    }
+
     // use a SingleColorIcon for the "out of sync warning" icon
     QIcon icon = m_platform_style->SingleColorIcon(QStringLiteral(":/icons/warning"));
     ui->labelTransactionsStatus->setIcon(icon);
@@ -153,7 +159,7 @@ OverviewPage::OverviewPage(const PlatformStyle *platformStyle, QWidget *parent) 
 
     // Add mining widget
     m_miningWidget = new MiningWidget(this);
-    ui->topLayout->insertWidget(1, m_miningWidget); // Insert after alerts, before main content
+    ui->topLayout->insertWidget(2, m_miningWidget); // Insert after brand header and alerts
 
     // start with displaying the "out of sync" warnings
     showOutOfSyncWarning(true);

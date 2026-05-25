@@ -186,11 +186,13 @@ bool OptionsModel::Init(bilingual_str& error)
         settings.setValue("fMinimizeOnClose", false);
     fMinimizeOnClose = settings.value("fMinimizeOnClose").toBool();
 
-    // Display
+    // Display: dark mode on by default for first launch; honor saved preference afterward
     if (!settings.contains("dark_mode")) {
-        settings.setValue("dark_mode", false);
+        m_dark_mode = true;
+        settings.setValue("dark_mode", m_dark_mode);
+    } else {
+        m_dark_mode = settings.value("dark_mode").toBool();
     }
-    m_dark_mode = settings.value("dark_mode", false).toBool();
 
     // Display
     if (!settings.contains("DisplayBitcoinUnit")) {

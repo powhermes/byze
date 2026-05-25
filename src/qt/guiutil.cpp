@@ -465,10 +465,25 @@ bool openBitcoinConf()
     return res;
 }
 
+static bool g_dark_theme_active{false};
+
+bool IsDarkThemeActive()
+{
+    return g_dark_theme_active;
+}
+
+bool IsDarkModeEnabled()
+{
+    // Default to dark when the user has never set a preference.
+    return QSettings().value("dark_mode", true).toBool();
+}
+
 void SetDarkTheme(bool enabled)
 {
     // Global application palette / stylesheet. Keep it lightweight and reversible.
     if (!qApp) return;
+
+    g_dark_theme_active = enabled;
 
     if (!enabled) {
         qApp->setStyleSheet(QString{});
@@ -480,26 +495,57 @@ void SetDarkTheme(bool enabled)
     palette.setColor(QPalette::Window, QColor(30, 30, 30));
     palette.setColor(QPalette::WindowText, QColor(230, 230, 230));
     palette.setColor(QPalette::Base, QColor(22, 22, 22));
-    palette.setColor(QPalette::AlternateBase, QColor(30, 30, 30));
+    palette.setColor(QPalette::AlternateBase, QColor(38, 38, 38));
     palette.setColor(QPalette::ToolTipBase, QColor(40, 40, 40));
     palette.setColor(QPalette::ToolTipText, QColor(230, 230, 230));
     palette.setColor(QPalette::Text, QColor(230, 230, 230));
     palette.setColor(QPalette::Button, QColor(45, 45, 45));
     palette.setColor(QPalette::ButtonText, QColor(230, 230, 230));
-    palette.setColor(QPalette::BrightText, QColor(255, 60, 60));
+    palette.setColor(QPalette::BrightText, QColor(255, 100, 100));
     palette.setColor(QPalette::Link, QColor(96, 165, 250));
     palette.setColor(QPalette::Highlight, QColor(59, 130, 246));
-    palette.setColor(QPalette::HighlightedText, QColor(0, 0, 0));
+    palette.setColor(QPalette::HighlightedText, QColor(255, 255, 255));
+    palette.setColor(QPalette::PlaceholderText, QColor(160, 160, 160));
+    palette.setColor(QPalette::Disabled, QPalette::Text, QColor(120, 120, 120));
+    palette.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(120, 120, 120));
 
     qApp->setPalette(palette);
 
-    // Improve tooltips/menus and some common widgets without trying to theme everything.
     qApp->setStyleSheet(QStringLiteral(
         "QToolTip { color: #e6e6e6; background-color: #2d2d2d; border: 1px solid #4b5563; }"
         "QMenu { background-color: #2a2a2a; color: #e6e6e6; }"
-        "QMenu::item:selected { background-color: #3b82f6; color: #000000; }"
-        "QLineEdit, QPlainTextEdit, QTextEdit { background-color: #161616; color: #e6e6e6; selection-background-color: #3b82f6; selection-color: #000000; }"
-        "QComboBox, QSpinBox, QDoubleSpinBox { background-color: #2d2d2d; color: #e6e6e6; }"
+        "QMenu::item:selected { background-color: #3b82f6; color: #ffffff; }"
+        "QLineEdit, QPlainTextEdit, QTextEdit, QAbstractSpinBox {"
+        "  background-color: #161616; color: #e6e6e6;"
+        "  selection-background-color: #3b82f6; selection-color: #ffffff; border: 1px solid #4b5563; }"
+        "QComboBox { background-color: #2d2d2d; color: #e6e6e6; border: 1px solid #4b5563; }"
+        "QComboBox QAbstractItemView { background-color: #2d2d2d; color: #e6e6e6; selection-background-color: #3b82f6; }"
+        "QPushButton { background-color: #3a3a3a; color: #e6e6e6; border: 1px solid #4b5563; padding: 4px 10px; }"
+        "QPushButton:hover { background-color: #4a4a4a; }"
+        "QPushButton:pressed { background-color: #2a2a2a; }"
+        "QPushButton:disabled { color: #787878; background-color: #2a2a2a; }"
+        "QTabWidget::pane { border: 1px solid #4b5563; background: #1e1e1e; }"
+        "QTabBar::tab { background: #2d2d2d; color: #e6e6e6; padding: 6px 12px; border: 1px solid #4b5563; }"
+        "QTabBar::tab:selected { background: #3b82f6; color: #ffffff; }"
+        "QTableView, QListView, QTreeView {"
+        "  background-color: #1a1a1a; color: #e6e6e6;"
+        "  alternate-background-color: #242424; gridline-color: #3a3a3a; }"
+        "QHeaderView::section { background-color: #2d2d2d; color: #e6e6e6; border: 1px solid #3a3a3a; padding: 4px; }"
+        "QTableView::item:selected, QListView::item:selected, QTreeView::item:selected {"
+        "  background-color: #3b82f6; color: #ffffff; }"
+        "QFrame { color: #e6e6e6; }"
+        "QGroupBox { color: #e6e6e6; border: 1px solid #4b5563; margin-top: 8px; }"
+        "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
+        "QScrollBar:vertical { background: #1e1e1e; width: 12px; }"
+        "QScrollBar::handle:vertical { background: #4b5563; min-height: 20px; border-radius: 4px; }"
+        "QScrollBar:horizontal { background: #1e1e1e; height: 12px; }"
+        "QScrollBar::handle:horizontal { background: #4b5563; min-width: 20px; border-radius: 4px; }"
+        "QLabel#labelAlerts {"
+        "  background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #5c4a1f, stop:1 #7a5f24);"
+        "  color: #fef3c7; padding: 4px; }"
+        "QDialog, QMessageBox { background-color: #1e1e1e; color: #e6e6e6; }"
+        "QStatusBar { background-color: #2a2a2a; color: #e6e6e6; }"
+        "QToolBar { background-color: #2a2a2a; border: none; }"
     ));
 }
 
