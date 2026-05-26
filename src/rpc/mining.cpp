@@ -1223,6 +1223,7 @@ static RPCHelpMan getblocktemplate()
     UniValue transactions(UniValue::VARR);
     std::map<Txid, int64_t> setTxIndex;
     int i = 0;
+    int index_in_template = 0;
     for (const auto& it : pblock->vtx) {
         const CTransaction& tx = *it;
         const Txid& txHash = tx.GetHash();
@@ -1245,9 +1246,9 @@ static RPCHelpMan getblocktemplate()
         }
         entry.pushKV("depends", std::move(deps));
 
-        int index_in_template = i - 1;
         entry.pushKV("fee", pblocktmpl_holder->getTxFees().at(static_cast<size_t>(index_in_template)));
         int64_t nTxSigOps = pblocktmpl_holder->getTxSigops().at(static_cast<size_t>(index_in_template));
+        ++index_in_template;
         if (fPreSegWit) {
             CHECK_NONFATAL(nTxSigOps % WITNESS_SCALE_FACTOR == 0);
             nTxSigOps /= WITNESS_SCALE_FACTOR;
