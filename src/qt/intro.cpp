@@ -47,13 +47,8 @@ Intro::Intro(QWidget *parent, int64_t blockchain_size_gb, int64_t chain_state_si
     ui->welcomeLabel->setText(ui->welcomeLabel->text().arg(CLIENT_NAME));
     ui->storageLabel->setText(ui->storageLabel->text().arg(CLIENT_NAME));
 
-    ui->lblExplanation1->setText(ui->lblExplanation1->text()
-        .arg(CLIENT_NAME)
-        .arg(m_blockchain_size_gb)
-        .arg(2009)
-        .arg(tr("Byze"))
-    );
-    ui->lblExplanation2->setText(ui->lblExplanation2->text().arg(CLIENT_NAME));
+    ui->lblExplanation1->setText(tr("Byze will store the blockchain and wallet data in this directory."));
+    ui->lblExplanation2->setText(tr("Initial synchronization may take time depending on network and disk speed."));
 
     const int min_prune_target_GB = std::ceil(MIN_DISK_SPACE_FOR_BLOCK_FILES / 1e9);
     ui->pruneGB->setRange(min_prune_target_GB, std::numeric_limits<int>::max());
@@ -217,10 +212,10 @@ void Intro::UpdateFreeSpaceLabel()
 {
     QString freeString = tr("%n GB of space available", "", m_bytes_available / GB_BYTES);
     if (m_bytes_available < m_required_space_gb * GB_BYTES) {
-        freeString += " " + tr("(of %n GB needed)", "", m_required_space_gb);
+        freeString += " " + tr("(may be insufficient for initial synchronization)");
         ui->freeSpace->setStyleSheet("QLabel { color: #800000 }");
     } else if (m_bytes_available / GB_BYTES - m_required_space_gb < 10) {
-        freeString += " " + tr("(%n GB needed for full chain)", "", m_required_space_gb);
+        freeString += " " + tr("(may be tight for initial synchronization)");
         ui->freeSpace->setStyleSheet("QLabel { color: #999900 }");
     } else {
         ui->freeSpace->setStyleSheet("");
@@ -292,10 +287,13 @@ QString Intro::getPathToCheck()
 void Intro::UpdatePruneLabels(bool prune_checked)
 {
     m_required_space_gb = m_blockchain_size_gb + m_chain_state_size_gb;
-    QString storageRequiresMsg = tr("At least %1 GB of data will be stored in this directory, and it will grow over time.");
+    QString diskMessage;
     if (prune_checked && m_prune_target_gb <= m_blockchain_size_gb) {
         m_required_space_gb = m_prune_target_gb + m_chain_state_size_gb;
-        storageRequiresMsg = tr("Approximately %1 GB of data will be stored in this directory.");
+        diskMessage = tr("With pruning enabled, disk usage is limited and will remain bounded as Byze syncs.");
+    } else {
+        // Avoid relying on potentially stale assumed chain size numbers.
+        diskMessage = tr("Disk usage will start at several GB initially and grow as the chain grows.");
     }
     ui->lblExplanation3->setVisible(prune_checked);
     ui->pruneGB->setEnabled(prune_checked);
@@ -306,9 +304,8 @@ void Intro::UpdatePruneLabels(bool prune_checked)
         //: Explanatory text on the capability of the current prune target.
         tr("(sufficient to restore backups %n day(s) old)", "", expected_backup_days));
     ui->sizeWarningLabel->setText(
-        tr("%1 will download and store a copy of the Byze blockchain.").arg(CLIENT_NAME) + " " +
-        storageRequiresMsg.arg(m_required_space_gb) + " " +
-        tr("The wallet will also be stored in this directory.")
+        tr("%1 will store the blockchain and wallet data in this directory.").arg(CLIENT_NAME) + " " +
+        diskMessage
     );
     this->adjustSize();
 }

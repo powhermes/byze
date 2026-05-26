@@ -1012,9 +1012,10 @@ void BitcoinGUI::showSoloMiningHelpClicked()
            "  startmining \"address\" [threads]\n"
            "  stopmining\n"
            "  getminingstatus / getmininginfo\n\n"
-           "High-performance pooled mining uses the separate Byze Miner application talking to your node's RPC.\n\n"
-           "Pool-style signing on this node:\n"
-           "  signpoolblock \"hex\" — attach quantum signatures to a pool-built block\n"
+           "Pool mining uses the separate byze-miner application connecting to a Stratum pool such as pool.byze.org:3333.\n"
+           "startmining \"address\" [threads] is in-process solo CPU mining (not pool mining).\n\n"
+           "Pool infrastructure signing on this node:\n"
+           "  signpoolblock \"hex\" — attach quantum signatures to a pool-built block (operators only)\n"
            "  submitblock \"hex\"\n\n"
            "The Overview Mining panel calls startmining when the chain is synced."));
 }

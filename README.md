@@ -1,6 +1,8 @@
 Byze (BYZ)
 ========================================================================================
 
+Project repository: https://github.com/powhermes/byze
+
 Byze is a Bitcoin Core-derived chain with:
 - **RandomX** proof-of-work (CPU-friendly; replaces SHA256d)
 - **Dual post-quantum block signatures**: **XMSS + SPHINCS+** enforced on mainnet blocks
@@ -58,8 +60,10 @@ Further information about Bitcoin Core is available in the [doc folder](/doc).
 License
 -------
 
-Bitcoin Core is released under the terms of the MIT license. See [COPYING](COPYING) for more
+Byze is released under the terms of the MIT license. See [COPYING](COPYING) for more
 information or see https://opensource.org/license/MIT.
+
+Byze is based on [Bitcoin Core](https://github.com/bitcoin/bitcoin), which is also MIT-licensed.
 
 Development Process
 -------------------

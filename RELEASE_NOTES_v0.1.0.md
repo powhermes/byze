@@ -6,6 +6,7 @@ This is a **regtest-only** pre-release milestone. This software is **NOT ready f
 
 ## Release Information
 
+- **Source**: https://github.com/powhermes/byze (based on [Bitcoin Core](https://github.com/bitcoin/bitcoin))
 - **Version**: v0.1.0-regtest-stable
 - **Release Date**: December 2024
 - **Release Type**: Pre-release milestone (regtest-only)

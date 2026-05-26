@@ -85,16 +85,19 @@ std::string CopyrightHolders(const std::string& strPrefix)
 
 std::string LicenseInfo()
 {
-    const std::string URL_SOURCE_CODE = "<https://github.com/bitcoin/bitcoin>";
+    const std::string URL_BYZE = "<https://github.com/powhermes/byze>";
+    const std::string URL_BITCOIN_CORE = "<https://github.com/bitcoin/bitcoin>";
 
     return CopyrightHolders(strprintf(_("Copyright (C) %i-%i"), 2009, COPYRIGHT_YEAR).translated + " ") + "\n" +
            "\n" +
            strprintf(_("Please contribute if you find %s useful. "
                        "Visit %s for further information about the software."),
-                     CLIENT_NAME, "<" CLIENT_URL ">")
+                     CLIENT_NAME, URL_BYZE)
                .translated +
            "\n" +
-           strprintf(_("The source code is available from %s."), URL_SOURCE_CODE).translated +
+           strprintf(_("The Byze source code is available from %s."), URL_BYZE).translated +
+           "\n" +
+           strprintf(_("Based on Bitcoin Core, available from %s."), URL_BITCOIN_CORE).translated +
            "\n" +
            "\n" +
            strprintf(_("Distributed under the MIT software license, see the accompanying file %s or %s"), "COPYING", "<https://opensource.org/license/MIT>").translated +

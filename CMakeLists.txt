@@ -31,7 +31,7 @@ set(CLIENT_VERSION_MAJOR 0)
 set(CLIENT_VERSION_MINOR 1)
 set(CLIENT_VERSION_BUILD 0)
 set(CLIENT_VERSION_RC 0)
-set(CLIENT_VERSION_IS_RELEASE "false")
+set(CLIENT_VERSION_IS_RELEASE "true")
 set(COPYRIGHT_YEAR "2025")
 
 # During the enabling of the CXX and CXXOBJ languages, we modify
@@ -53,7 +53,7 @@ set(CMAKE_TRY_COMPILE_PLATFORM_VARIABLES
 project(Byze
   VERSION ${CLIENT_VERSION_MAJOR}.${CLIENT_VERSION_MINOR}.${CLIENT_VERSION_BUILD}
   DESCRIPTION "Byze cryptocurrency client software"
-  HOMEPAGE_URL "https://github.com/herm/byze"
+  HOMEPAGE_URL "https://github.com/powhermes/byze"
   LANGUAGES NONE
 )
 
@@ -64,7 +64,7 @@ endif()
 
 set(COPYRIGHT_HOLDERS "The %s developers")
 set(COPYRIGHT_HOLDERS_FINAL "The ${CLIENT_NAME} developers")
-set(CLIENT_BUGREPORT "https://github.com/herm/byze/issues")
+set(CLIENT_BUGREPORT "https://github.com/powhermes/byze/issues")
 
 #=============================
 # Language setup
