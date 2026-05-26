@@ -27,3 +27,9 @@ target/
 /guix-build-*
 
 /ci/scratch/
+
+# Release artifacts
+*.tar.gz
+SHA256SUMS.txt
+*.log
+ldd-report-*.txt
