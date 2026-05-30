@@ -5,6 +5,7 @@
 #ifndef BITCOIN_WALLET_BIP39_H
 #define BITCOIN_WALLET_BIP39_H
 
+#include <cstdint>
 #include <span>
 #include <string>
 #include <vector>

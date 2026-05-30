@@ -2,7 +2,8 @@
 # Repackage an existing build-windows/ tree into byze-<version>-win64.zip
 set -e
 cd "$(dirname "$0")"
-VERSION="${CLIENT_VERSION:-0.1.0}"DIST=build-windows/dist/byze-${VERSION}-win64
+VERSION="${CLIENT_VERSION:-0.1.0}"
+DIST="build-windows/dist/byze-${VERSION}-win64"
 rm -rf build-windows/dist
 mkdir -p "$DIST"
 cp build-windows/bin/byze-qt.exe build-windows/bin/byzed.exe build-windows/bin/byze-cli.exe build-windows/bin/byze.exe "$DIST/"
@@ -13,7 +14,8 @@ for dll in libevent-2-1-7.dll libevent_core-2-1-7.dll libevent_extra-2-1-7.dll l
   fi
 done
 cat > "$DIST/README.txt" << READMEEOF
-Byze Core ${VERSION} (Windows 64-bit)=====================================
+Byze Core ${VERSION} (Windows 64-bit)
+=====================================
 
 Unpack this folder anywhere and run byze-qt.exe to start the GUI wallet.
 
@@ -24,10 +26,11 @@ Included tools:
   byze.exe     - Multi-call RPC client
 
 More info: https://github.com/powhermes/byze
-READMEEOFcd build-windows/dist
-rm -f byze-${VERSION}-win64.zip
-zip -r byze-${VERSION}-win64.zip byze-${VERSION}-win64
+READMEEOF
+cd build-windows/dist
+rm -f "byze-${VERSION}-win64.zip"
+zip -r "byze-${VERSION}-win64.zip" "byze-${VERSION}-win64"
 echo "=== Archive ==="
-ls -lh byze-${VERSION}-win64.zip
+ls -lh "byze-${VERSION}-win64.zip"
 echo "=== Contents ==="
-ls -lh byze-${VERSION}-win64/ | head -30
+ls -lh "byze-${VERSION}-win64/" | head -30

@@ -62,8 +62,7 @@ cmake -B "$BUILD_DIR" -G "MinGW Makefiles" \
 # Build
 cmake --build "$BUILD_DIR" -j"$(nproc)"
 
-# Package
-rm -rf "${BUILD_DIR}/dist"
+# Package (close byze-qt.exe first if a previous run is still open)rm -rf "${BUILD_DIR}/dist"
 mkdir -p "$DIST"
 
 cp "${BUILD_DIR}/bin/byze-qt.exe" "$DIST/"
