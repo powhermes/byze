@@ -62,7 +62,8 @@ cmake -B "$BUILD_DIR" -G "MinGW Makefiles" \
 # Build
 cmake --build "$BUILD_DIR" -j"$(nproc)"
 
-# Package (close byze-qt.exe first if a previous run is still open)rm -rf "${BUILD_DIR}/dist"
+# Package (close byze-qt.exe first if a previous run is still open)
+rm -rf "${BUILD_DIR}/dist"
 mkdir -p "$DIST"
 
 cp "${BUILD_DIR}/bin/byze-qt.exe" "$DIST/"
@@ -70,13 +71,17 @@ cp "${BUILD_DIR}/bin/byzed.exe" "$DIST/"
 cp "${BUILD_DIR}/bin/byze-cli.exe" "$DIST/"
 cp "${BUILD_DIR}/bin/byze.exe" "$DIST/"
 
-windeployqt6 --release --no-translations "$DIST/byze-qt.exe"
+windeployqt6 --release --compiler-runtime --no-translations "$DIST/byze-qt.exe"
 
-for dll in libevent-2-1-7.dll libevent_core-2-1-7.dll libevent_extra-2-1-7.dll libsqlite3-0.dll libqrencode-4.dll; do
+# Copy non-Qt runtime dependencies (libevent, sqlite, qrencode, Qt transitive MinGW DLLs).
+for dll in libevent_core-7.dll libevent_extra-7.dll libsqlite3-0.dll libqrencode.dll; do
     if [ -f "/mingw64/bin/${dll}" ]; then
         cp "/mingw64/bin/${dll}" "$DIST/"
+    else
+        echo "Warning: missing runtime dependency /mingw64/bin/${dll}"
     fi
 done
+"${SCRIPT_DIR}/scripts/collect-mingw-dlls.sh" "$DIST"
 
 cat > "$DIST/README.txt" << EOF
 Byze Core ${VERSION} (Windows 64-bit)

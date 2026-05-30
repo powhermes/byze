@@ -7,12 +7,15 @@ DIST="build-windows/dist/byze-${VERSION}-win64"
 rm -rf build-windows/dist
 mkdir -p "$DIST"
 cp build-windows/bin/byze-qt.exe build-windows/bin/byzed.exe build-windows/bin/byze-cli.exe build-windows/bin/byze.exe "$DIST/"
-windeployqt6 --release --no-translations "$DIST/byze-qt.exe"
-for dll in libevent-2-1-7.dll libevent_core-2-1-7.dll libevent_extra-2-1-7.dll libsqlite3-0.dll libqrencode-4.dll; do
+windeployqt6 --release --compiler-runtime --no-translations "$DIST/byze-qt.exe"
+for dll in libevent_core-7.dll libevent_extra-7.dll libsqlite3-0.dll libqrencode.dll; do
   if [ -f "/mingw64/bin/${dll}" ]; then
     cp "/mingw64/bin/${dll}" "$DIST/"
+  else
+    echo "Warning: missing runtime dependency /mingw64/bin/${dll}"
   fi
 done
+"$(dirname "$0")/scripts/collect-mingw-dlls.sh" "$DIST"
 cat > "$DIST/README.txt" << READMEEOF
 Byze Core ${VERSION} (Windows 64-bit)
 =====================================
