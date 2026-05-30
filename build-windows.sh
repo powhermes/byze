@@ -28,12 +28,14 @@ echo "Byze Windows Build (${VERSION})"
 echo "=========================================="
 
 # Install build dependencies if missing
+# Note: use pkgconf (not pkg-config) — they conflict; cmake depends on pkgconf.
 pacman -S --needed --noconfirm \
     mingw-w64-x86_64-cmake \
     mingw-w64-x86_64-gcc \
     mingw-w64-x86_64-make \
-    mingw-w64-x86_64-pkg-config \
-    mingw-w64-x86_64-boost \    mingw-w64-x86_64-libevent \
+    mingw-w64-x86_64-pkgconf \
+    mingw-w64-x86_64-boost \
+    mingw-w64-x86_64-libevent \
     mingw-w64-x86_64-sqlite3 \
     mingw-w64-x86_64-qrencode \
     mingw-w64-x86_64-qt6-base \
