@@ -8,6 +8,8 @@
 !/build-aux
 !/build_msvc
 !/build-ubuntu.sh
+!/build-windows.sh
+!/package-windows.sh
 
 *.pyc
 

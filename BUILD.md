@@ -105,6 +105,38 @@ If Qt6 is not found, ensure you're on Ubuntu 22.04+ or install Qt6 manually:
 sudo apt-get install -y qt6-base-dev qt6-tools-dev
 ```
 
+## Quick Build (Windows / MSYS2)
+
+Build the GUI wallet and create a release zip on Windows using MSYS2 MinGW64:
+
+```bash
+# Open MSYS2 MinGW64 shell first:
+#   C:\msys64\msys2_shell.cmd -mingw64
+./build-windows.sh
+```
+
+This script will:
+- Install MSYS2 build dependencies (CMake, GCC, Qt6, Boost, libevent, SQLite, qrencode, etc.)
+- Initialize git submodules (RandomX)
+- Configure and build with wallet + GUI support
+- Bundle Qt runtime DLLs with `windeployqt6`
+- Produce `build-windows/dist/byze-0.1.0-win64.zip`
+
+To repackage only after an existing build:
+
+```bash
+./package-windows.sh
+```
+
+### Requirements
+
+- [MSYS2](https://www.msys2.org/) with the **MINGW64** environment (not MSYS or MINGW32)
+- Internet connection (pacman downloads dependencies on first run)
+- At least 8GB RAM recommended
+- At least 15GB free disk space for the build tree
+
+See also `doc/build-windows.md` for cross-compilation with the depends system.
+
 ## Cross-Compilation
 
 For cross-compilation, see the `depends/` directory and use the depends system:
