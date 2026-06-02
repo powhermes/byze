@@ -1,1 +1,11 @@
 src/clientversion.cpp export-subst
+
+# Shell scripts must use LF on Linux/macOS (avoid /bin/bash^M after Windows/WSL edits).
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Windows packaging scripts may be edited on Windows; still normalize on commit.
+build-windows.sh text eol=lf
+package-windows.sh text eol=lf
+wait-for-node.sh text eol=lf
+build-ubuntu.sh text eol=lf
