@@ -479,7 +479,14 @@ static OqsInit g_oqs_init;
   {
     m_xmss_private = std::make_unique<xmss_private_key>();
     m_sphincs_private = std::make_unique<sphincs_private_key>();
-    if (!m_xmss_private->generate() || !m_sphincs_private->generate()) return false;
+    if (!m_xmss_private->generate()) {
+      LogError("generate_dual_keys: XMSS keygen failed\n");
+      return false;
+    }
+    if (!m_sphincs_private->generate()) {
+      LogError("generate_dual_keys: SPHINCS keygen failed\n");
+      return false;
+    }
     m_xmss_public = std::make_unique<xmss_public_key>(m_xmss_private->get_public_key());
     m_sphincs_public = std::make_unique<sphincs_public_key>(m_sphincs_private->get_public_key());
     m_current_algo = quantum_algorithm::DUAL;
