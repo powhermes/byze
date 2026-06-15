@@ -48,16 +48,11 @@
 #include <util/time.h>
 #include <util/translation.h>
 
-#include <pthread.h>
-
-#include <functional>
-#include <mutex>
 #include <validation.h>
 #include <validationinterface.h>
 #include <versionbits.h>
 
-#include <crypto/quantum_safe.h>
-#include <random.h>
+#include <crypto/quantum_block_sign.h>
 #include <crypto/quantum_safe_config.h>
 #include <node/mining_controller.h>
 #include <streams.h>
@@ -659,86 +654,21 @@ static node::MiningController& EnsureMiningController(const node::NodeContext& n
     return *node.mining_controller;
 }
 
-/** liboqs XMSS/SPHINCS+ keygen+sign needs a deep stack; HTTP worker threads are too small. */
-template <typename Fn>
-static bool RunOnLargeStack(Fn&& fn)
-{
-    struct Payload {
-        Fn* fn;
-        bool ok;
-    };
-    Payload payload{&fn, false};
-
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setstacksize(&attr, 32 * 1024 * 1024);
-
-    auto trampoline = [](void* arg) -> void* {
-        auto* p = static_cast<Payload*>(arg);
-        p->ok = (*p->fn)();
-        return nullptr;
-    };
-
-    pthread_t thread;
-    const int rc = pthread_create(&thread, &attr, trampoline, &payload);
-    pthread_attr_destroy(&attr);
-    if (rc != 0) {
-        LogError("RunOnLargeStack: pthread_create failed (%d)\n", rc);
-        return false;
-    }
-    pthread_join(thread, nullptr);
-    return payload.ok;
-}
-
-static crypto::quantum_safe_manager g_block_quantum_signer;
-static std::once_flag g_block_quantum_signer_init;
-
-static void InitBlockQuantumSignerOnce()
-{
-    unsigned char seed[32];
-    GetRandBytes(seed);
-    if (!g_block_quantum_signer.generate_dual_keys_from_entropy_ikm(seed, sizeof(seed))) {
-        LogError("InitBlockQuantumSignerOnce: generate_dual_keys_from_entropy_ikm failed\n");
-    }
-}
-
 /** Attach quantum_signatures when mainnet policy requires them (shared by pool RPC and generate). */
 static bool MaybeSignBlockQuantum(CBlock& block, bool* quantum_signed_out)
 {
     if (quantum_signed_out) *quantum_signed_out = false;
-    block.quantum_signatures.SetNull();
 
     const bool is_mainnet{!Params().IsTestChain()};
     const bool enforce{gArgs.GetBoolArg("-enforcequantumblocksigs", false)};
     const bool require_quantum{is_mainnet || enforce};
     const bool is_genesis{block.GetHash() == Params().GetConsensus().hashGenesisBlock};
-    if (!require_quantum || is_genesis) {
-        return true;
-    }
+    const bool will_sign{require_quantum && !is_genesis};
 
-    std::call_once(g_block_quantum_signer_init, InitBlockQuantumSignerOnce);
-    if (!g_block_quantum_signer.has_dual_keys()) {
-        LogError("MaybeSignBlockQuantum: block signer keys unavailable\n");
+    if (!crypto::AttachQuantumBlockSignatures(block, require_quantum, is_genesis)) {
         return false;
     }
-
-    const uint256 block_hash{block.GetHash()};
-    std::vector<uint8_t> xmss_sig;
-    std::vector<uint8_t> sphincs_sig;
-    const bool signed_ok = RunOnLargeStack([&]() -> bool {
-        xmss_sig = g_block_quantum_signer.sign(block_hash, crypto::quantum_algorithm::XMSS);
-        if (xmss_sig.size() != BYZE_XMSS_SIGNATURE_SIZE) return false;
-        sphincs_sig = g_block_quantum_signer.sign(block_hash, crypto::quantum_algorithm::SPHINCS_PLUS);
-        return sphincs_sig.size() == BYZE_SPHINCS_SIGNATURE_SIZE;
-    });
-    if (!signed_ok) {
-        LogError("MaybeSignBlockQuantum: sign failed (xmss=%zu sphincs=%zu)\n", xmss_sig.size(), sphincs_sig.size());
-        return false;
-    }
-    block.quantum_signatures.xmss_signature = std::move(xmss_sig);
-    block.quantum_signatures.sphincs_signature = std::move(sphincs_sig);
-    block.quantum_signatures.dual_public_key = g_block_quantum_signer.get_dual_public_key_bundle();
-    if (quantum_signed_out) *quantum_signed_out = true;
+    if (quantum_signed_out && will_sign) *quantum_signed_out = true;
     return true;
 }
 

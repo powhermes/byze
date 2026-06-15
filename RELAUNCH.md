@@ -59,16 +59,32 @@ Cross-compilers and Guix were not available on the build host. Produce release a
 
 Targets: `x86_64-w64-mingw32`, `x86_64-apple-darwin`, `arm64-apple-darwin`.
 
-## Validation
+## Validation gate (green — pre-genesis)
 
-| Suite | Result |
-|-------|--------|
+All items below must stay green before genesis generation or any datadir wipe.
+
+| Gate | Result |
+|------|--------|
+| Quantum unit tests (3) | **Pass** — `quantum_manager_dual_sign_smoke`, `quantum_block_sign_smoke`, `quantum_block_sign_skips_genesis` |
+| `feature_quantum_*` functional (6) | **Pass** — full regtest suite below |
+| `signpoolblock` smoke | **Pass** — unsigned PoW block → `signpoolblock` → `submitblock` accepts |
+| `submitblock` rejects forged/invalid block sigs | **Pass** — `bad-quantum-sig-missing`, `bad-quantum-sig` |
+| Wallet quantum spend | **Pass** — multinode, reorg, mempool relay, IBD tests |
+| v0.1 / wrong witness sizes rejected | **Pass** — `bad-witness-nonstandard`, wrong stack lengths, empty XMSS |
 | `wallet-crypto` watch-only tests | **Pass** (7/7) |
 | Core Release build | **Pass** |
-| `feature_quantum_*` functional (regtest) | **Blocked** — `generateblock` RPC crashes during liboqs block-signer init on HTTP worker threads; fix in progress on `release/v0.2.0` (use wallet IKM keygen path + large-stack signing). Wallet quantum keygen/sign paths work. |
 | Archived mainnet datadir (`~/.byze`) | **Not modified** |
 
-Re-run after block-signing fix:
+### Unit tests
+
+```bash
+cmake --build build --target test_bitcoin -j$(nproc)
+./build/bin/test_bitcoin --run_test=quantum_*
+```
+
+Expected: `*** No errors detected` (3 test cases).
+
+### Functional tests
 
 ```bash
 python3 test/functional/feature_quantum_blocksig_reject.py
@@ -78,6 +94,17 @@ python3 test/functional/feature_quantum_reorg.py
 python3 test/functional/feature_quantum_mempool_relay.py
 python3 test/functional/feature_quantum_p2p_compact_block_sync.py
 ```
+
+Expected: each ends with `Tests successful`.
+
+### Block-signing fixes (what unblocked the gate)
+
+- XMSS STFL: persistent secret-key handle + stable store callback (`&m_secret_key`)
+- `DetRngScope`: restore liboqs system RNG on teardown (fixes SPHINCS sign after deterministic keygen)
+- `crypto::AttachQuantumBlockSignatures` module (large-stack pthread for keygen/sign on RPC/mining threads)
+- Functional tests: `generateblock(..., submit=false)` for submitblock rejection cases; reuse mining address during 110-block runs
+
+## Validation (historical)
 
 ## Deployment order (after genesis approval)
 
@@ -99,7 +126,7 @@ Stop v0.2 nodes; restart v0.1 binaries against the **archived** datadir only. v0
 - [x] Browser HMAC signing removed; watch-only mode; checklist published
 - [x] Linux release binaries staged
 - [ ] Windows/macOS Guix binaries (operator build)
-- [ ] Functional quantum suite green (block RPC signing fix)
+- [x] Functional quantum suite green (block RPC signing fix)
 - [ ] **Genesis generation** — **STOP — requires explicit approval**
 - [ ] New seed datadir bootstrap (separate from `~/.byze` archive)
 
@@ -107,7 +134,8 @@ Stop v0.2 nodes; restart v0.1 binaries against the **archived** datadir only. v0
 
 - `47ef541` — liboqs migration (quantum_safe, validation, functional test updates)
 - `adee1ba` — generateblock pre-check + v0.2.0 version bump
-- *(pending)* — block quantum signer stability fixes
+- `d12b065` — block quantum signer stability fixes + relaunch docs
+- Latest on `release/v0.2.0` — XMSS/RNG block-signing fix; quantum validation gate green
 
 ## Commits (byze-web)
 

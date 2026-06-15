@@ -31,13 +31,14 @@ class HermesQuantumP2PCompactBlockSyncTest(BitcoinTestFramework):
     def run_test(self):
         miner = self.nodes[0]
         self.log.info("Mine past IBD and connect second peer")
-        self.generatetoaddress(miner, nblocks=110, address=miner.getnewaddress())
+        mine_addr = miner.getnewaddress()
+        self.generatetoaddress(miner, nblocks=110, address=mine_addr)
         self.connect_nodes(0, 1)
         self.sync_all()
 
         self.log.info("Mine additional blocks and verify P2P sync with quantum block policy")
         tip = miner.getblockcount()
-        self.generatetoaddress(miner, nblocks=5, address=miner.getnewaddress())
+        self.generatetoaddress(miner, nblocks=5, address=mine_addr)
         self.sync_all()
         assert_equal(self.nodes[1].getblockcount(), tip + 5)
 

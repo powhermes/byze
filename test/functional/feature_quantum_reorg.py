@@ -88,11 +88,16 @@ class QuantumReorgTest(BitcoinTestFramework):
     def mine_blocks(self, node, num_blocks, *, sync_fun=None):
         """Mine blocks; use sync_fun=self.no_op while the network is intentionally partitioned."""
         sync_cb = self.no_op if sync_fun is None else sync_fun
+        if not hasattr(self, "_mine_addrs"):
+            self._mine_addrs = {}
+        if node.index not in self._mine_addrs:
+            self._mine_addrs[node.index] = node.getnewaddress()
+        addr = self._mine_addrs[node.index]
         for _ in range(num_blocks):
             self.generatetoaddress(
                 node,
                 nblocks=1,
-                address=node.getnewaddress(),
+                address=addr,
                 sync_fun=sync_cb,
             )
 

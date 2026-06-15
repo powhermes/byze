@@ -14,6 +14,7 @@ add_library(bitcoin_crypto STATIC EXCLUDE_FROM_ALL
   muhash.cpp
   poly1305.cpp
   quantum_safe.cpp
+  quantum_block_sign.cpp
   randomx_hash.cpp
   ripemd160.cpp
   sha1.cpp

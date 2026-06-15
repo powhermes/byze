@@ -35,6 +35,14 @@ struct DetRngState {
 std::mutex g_det_rng_mutex;
 DetRngState g_det_rng;
 
+/** liboqs + DetRngScope are not thread-safe; serialize all PQ operations. */
+std::recursive_mutex g_liboqs_mutex;
+
+struct LibOqsLock {
+  LibOqsLock() { g_liboqs_mutex.lock(); }
+  ~LibOqsLock() { g_liboqs_mutex.unlock(); }
+};
+
 uint256 hash_bytes(const unsigned char* data, size_t len)
 {
   uint256 result;
@@ -77,19 +85,15 @@ public:
   ~DetRngScope()
   {
     std::lock_guard<std::mutex> lock(g_det_rng_mutex);
-    OQS_randombytes_custom_algorithm(nullptr);
+    OQS_randombytes_switch_algorithm(OQS_RAND_alg_system);
   }
-};
-
-struct XmssStoreCtx {
-  std::vector<uint8_t>* blob;
 };
 
 static OQS_STATUS xmss_secure_store(uint8_t* sk_buf, size_t buf_len, void* context)
 {
-  auto* ctx = static_cast<XmssStoreCtx*>(context);
-  if (!ctx || !ctx->blob) return OQS_ERROR;
-  ctx->blob->assign(sk_buf, sk_buf + buf_len);
+  auto* blob = static_cast<std::vector<uint8_t>*>(context);
+  if (!blob) return OQS_ERROR;
+  blob->assign(sk_buf, sk_buf + buf_len);
   return OQS_SUCCESS;
 }
 
@@ -138,34 +142,62 @@ static OqsInit g_oqs_init;
 } // namespace
 
   xmss_private_key::xmss_private_key() = default;
-  xmss_private_key::~xmss_private_key() = default;
+
+  xmss_private_key::~xmss_private_key()
+  {
+    free_stfl_secret();
+  }
+
+  void xmss_private_key::free_stfl_secret() const
+  {
+    if (m_stfl_secret) {
+      OQS_SIG_STFL_SECRET_KEY_free(static_cast<OQS_SIG_STFL_SECRET_KEY*>(m_stfl_secret));
+      m_stfl_secret = nullptr;
+    }
+  }
+
+  bool xmss_private_key::ensure_stfl_secret() const
+  {
+    if (m_stfl_secret) return true;
+    if (m_secret_key.empty()) return false;
+    OQS_SIG_STFL_SECRET_KEY* sk = DeserializeXmssSecret(m_secret_key);
+    if (!sk) return false;
+    auto* self = const_cast<xmss_private_key*>(this);
+    OQS_SIG_STFL_SECRET_KEY_SET_store_cb(sk, xmss_secure_store, &self->m_secret_key);
+    self->m_stfl_secret = sk;
+    return true;
+  }
 
   bool xmss_private_key::generate()
   {
+    LibOqsLock lock;
     if (!OQS_SIG_STFL_alg_is_enabled(XMSS_ALG)) {
       return false;
     }
+    free_stfl_secret();
     OQS_SIG_STFL* sig = OQS_SIG_STFL_new(XMSS_ALG);
     if (!sig) return false;
 
     OQS_SIG_STFL_SECRET_KEY* sk = OQS_SIG_STFL_SECRET_KEY_new(XMSS_ALG);
     std::vector<uint8_t> pk(PUBKEY_SIZE);
-    XmssStoreCtx store_ctx{&m_secret_key};
     bool ok = false;
     if (sk) {
-      OQS_SIG_STFL_SECRET_KEY_SET_store_cb(sk, xmss_secure_store, &store_ctx);
+      OQS_SIG_STFL_SECRET_KEY_SET_store_cb(sk, xmss_secure_store, &m_secret_key);
       if (OQS_SIG_STFL_keypair(sig, pk.data(), sk) == OQS_SUCCESS) {
         ok = SerializeXmssSecret(sk, m_secret_key);
         m_public_key = std::move(pk);
+        m_stfl_secret = sk;
+        sk = nullptr;
       }
-      OQS_SIG_STFL_SECRET_KEY_free(sk);
     }
+    if (sk) OQS_SIG_STFL_SECRET_KEY_free(sk);
     OQS_SIG_STFL_free(sig);
     return ok && m_public_key.size() == PUBKEY_SIZE && !m_secret_key.empty();
   }
 
   bool xmss_private_key::initialize_from_entropy(const unsigned char seed32[32])
   {
+    LibOqsLock lock;
     DetRngScope rng(std::span<const uint8_t>(seed32, 32));
     return generate();
   }
@@ -173,9 +205,7 @@ static OqsInit g_oqs_init;
   bool xmss_private_key::load(const std::vector<uint8_t>& data)
   {
     if (data.empty()) return false;
-    OQS_SIG_STFL_SECRET_KEY* sk = DeserializeXmssSecret(data);
-    if (!sk) return false;
-    OQS_SIG_STFL_SECRET_KEY_free(sk);
+    free_stfl_secret();
     m_secret_key = data;
     return true;
   }
@@ -196,19 +226,19 @@ static OqsInit g_oqs_init;
 
   xmss_signature xmss_private_key::sign(const uint256& message) const
   {
+    LibOqsLock lock;
     xmss_signature sig;
     if (m_secret_key.empty() || m_public_key.size() != PUBKEY_SIZE) return sig;
+    if (!ensure_stfl_secret()) return sig;
 
     OQS_SIG_STFL* scheme = OQS_SIG_STFL_new(XMSS_ALG);
-    OQS_SIG_STFL_SECRET_KEY* sk = DeserializeXmssSecret(m_secret_key);
+    auto* sk = static_cast<OQS_SIG_STFL_SECRET_KEY*>(m_stfl_secret);
     if (!scheme || !sk) {
       OQS_SIG_STFL_free(scheme);
       return sig;
     }
-
-    std::vector<uint8_t> updated_secret = m_secret_key;
-    XmssStoreCtx store_ctx{&updated_secret};
-    OQS_SIG_STFL_SECRET_KEY_SET_store_cb(sk, xmss_secure_store, &store_ctx);
+    OQS_SIG_STFL_SECRET_KEY_SET_store_cb(sk, xmss_secure_store,
+        &const_cast<xmss_private_key*>(this)->m_secret_key);
 
     std::vector<uint8_t> sig_bytes(SIGNATURE_SIZE, 0);
     size_t sig_len = 0;
@@ -216,10 +246,9 @@ static OqsInit g_oqs_init;
     if (OQS_SIG_STFL_sign(scheme, sig_bytes.data(), &sig_len, msg.data(), msg.size(), sk) == OQS_SUCCESS
         && sig_len > 0 && sig_len <= SIGNATURE_SIZE) {
       sig.load(sig_bytes);
-      const_cast<xmss_private_key*>(this)->m_secret_key = std::move(updated_secret);
+      SerializeXmssSecret(sk, const_cast<xmss_private_key*>(this)->m_secret_key);
     }
 
-    OQS_SIG_STFL_SECRET_KEY_free(sk);
     OQS_SIG_STFL_free(scheme);
     return sig;
   }
@@ -270,6 +299,7 @@ static OqsInit g_oqs_init;
 
   bool xmss_public_key::verify(const uint256& message, const xmss_signature& signature) const
   {
+    LibOqsLock lock;
     if (m_public_key.size() != KEY_SIZE) return false;
     OQS_SIG_STFL* scheme = OQS_SIG_STFL_new(XMSS_ALG);
     if (!scheme) return false;
@@ -303,6 +333,7 @@ static OqsInit g_oqs_init;
 
   bool sphincs_private_key::generate()
   {
+    LibOqsLock lock;
     if (!OQS_SIG_alg_is_enabled(SPHINCS_ALG)) return false;
     OQS_SIG* sig = OQS_SIG_new(SPHINCS_ALG);
     if (!sig) return false;
@@ -315,6 +346,7 @@ static OqsInit g_oqs_init;
 
   bool sphincs_private_key::initialize_from_entropy128(const unsigned char seed64[64], const unsigned char priv64[64])
   {
+    LibOqsLock lock;
     (void)priv64;
     DetRngScope rng(std::span<const uint8_t>(seed64, 64));
     return generate();
@@ -343,6 +375,7 @@ static OqsInit g_oqs_init;
 
   sphincs_signature sphincs_private_key::sign(const uint256& message) const
   {
+    LibOqsLock lock;
     sphincs_signature sig;
     if (m_secret_key.size() != SECRET_KEY_SIZE) return sig;
     OQS_SIG* scheme = OQS_SIG_new(SPHINCS_ALG);
@@ -374,6 +407,7 @@ static OqsInit g_oqs_init;
 
   bool sphincs_public_key::verify(const uint256& message, const sphincs_signature& signature) const
   {
+    LibOqsLock lock;
     if (m_public_key.size() != KEY_SIZE) return false;
     OQS_SIG* scheme = OQS_SIG_new(SPHINCS_ALG);
     if (!scheme) return false;

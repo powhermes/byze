@@ -21,8 +21,7 @@
 #include <util/threadnames.h>
 #include <validation.h>
 #include <crypto/randomx_hash.h>
-#include <crypto/quantum_safe.h>
-#include <crypto/quantum_safe_config.h>
+#include <crypto/quantum_block_sign.h>
 
 #include <chrono>
 
@@ -367,34 +366,10 @@ bool MiningController::MineBlock(size_t thread_index)
             const bool isGenesis = (pblock->GetHash() == Params().GetConsensus().hashGenesisBlock);
             
             if (require_quantum && !isGenesis) {
-                crypto::quantum_safe_manager qmgr;
-                if (qmgr.ensure_modern_keys(BYZE_DEFAULT_XMSS_TREE_HEIGHT, BYZE_DEFAULT_SPHINCS_LEVEL)) {
-                    uint256 block_hash = pblock->GetHash();
-                    
-                    // Sign block hash with both XMSS and SPHINCS+
-                    std::vector<uint8_t> xmss_sig = qmgr.sign(block_hash, crypto::quantum_algorithm::XMSS);
-                    std::vector<uint8_t> sphincs_sig = qmgr.sign(block_hash, crypto::quantum_algorithm::SPHINCS_PLUS);
-                    
-                    if (xmss_sig.size() == BYZE_XMSS_SIGNATURE_SIZE && sphincs_sig.size() == BYZE_SPHINCS_SIGNATURE_SIZE) {
-                        pblock->quantum_signatures.xmss_signature = std::move(xmss_sig);
-                        pblock->quantum_signatures.sphincs_signature = std::move(sphincs_sig);
-                        pblock->quantum_signatures.dual_public_key = qmgr.get_dual_public_key_bundle();
-                        const uint256 block_hash_after = pblock->GetHash();
-                        LogPrintf("[quantum-cmp] path=mine-controller stage=after_sign block_hash=%s hash_unchanged=%s xmss_prefix=%s sphincs_prefix=%s bundle_prefix=%s\n",
-                            block_hash.ToString(),
-                            block_hash_after == block_hash ? "1" : "0",
-                            HexStr(std::span<const uint8_t>(pblock->quantum_signatures.xmss_signature.data(), 32)),
-                            HexStr(std::span<const uint8_t>(pblock->quantum_signatures.sphincs_signature.data(), 32)),
-                            HexStr(std::span<const uint8_t>(pblock->quantum_signatures.dual_public_key.data(), 32)));
-                        LogInfo("Quantum signatures added to block\n");
-                    } else {
-                        // If signature generation fails, block will be rejected by consensus
-                        LogError("Failed to generate quantum signatures for mainnet block (sizes: XMSS=%zu, SPHINCS=%zu)\n",
-                                xmss_sig.size(), sphincs_sig.size());
-                    }
+                if (!crypto::AttachQuantumBlockSignatures(*pblock, require_quantum, isGenesis)) {
+                    LogError("Failed to attach quantum signatures for block\n");
                 } else {
-                    // If key generation fails, block will be rejected by consensus
-                    LogError("Failed to ensure quantum keys for mainnet block\n");
+                    LogInfo("Quantum signatures added to block\n");
                 }
             }
             // For non-enforced test networks (and genesis): quantum_signatures remain empty (Bitcoin-compatible)

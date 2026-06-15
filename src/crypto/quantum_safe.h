@@ -53,8 +53,13 @@ namespace crypto
     void attach_public_key(std::vector<uint8_t> pubkey);
 
   private:
+    void free_stfl_secret() const;
+    bool ensure_stfl_secret() const;
+
     std::vector<uint8_t> m_secret_key;
     std::vector<uint8_t> m_public_key;
+    /** Live liboqs STFL handle; must not round-trip serialize per signature (crashes xmss_sign). */
+    mutable void* m_stfl_secret{nullptr};
   };
 
   class xmss_public_key
