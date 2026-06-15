@@ -27,6 +27,8 @@ include(../cmake/secp256k1.cmake)
 add_secp256k1(secp256k1)
 include(../cmake/randomx.cmake)
 add_randomx(randomx)
+include(../cmake/liboqs.cmake)
+add_liboqs()
 
 # Set top-level target output locations.
 if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY)

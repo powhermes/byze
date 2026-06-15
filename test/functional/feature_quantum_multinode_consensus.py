@@ -12,9 +12,9 @@ from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error
 
 # Keep these in sync with src/crypto/quantum_safe_config.h
-BYZE_XMSS_SIGNATURE_SIZE = 1028
-BYZE_SPHINCS_SIGNATURE_SIZE = 1024
-BYZE_DUAL_PUBKEY_BUNDLE_SIZE = 192
+BYZE_XMSS_SIGNATURE_SIZE = 2500
+BYZE_SPHINCS_SIGNATURE_SIZE = 7856
+BYZE_DUAL_PUBKEY_BUNDLE_SIZE = 100
 
 
 def ser_quantum_sigdata(*, xmss: bytes, sphincs: bytes, dual: bytes) -> bytes:

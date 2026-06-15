@@ -25,16 +25,20 @@ add_library(bitcoin_crypto STATIC EXCLUDE_FROM_ALL
   ../support/cleanse.cpp
 )
 
-target_include_directories(bitcoin_crypto
-  PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../randomx/src
-)
-
 target_link_libraries(bitcoin_crypto
   PRIVATE
     core_interface
     randomx
+    oqs
 )
+
+target_include_directories(bitcoin_crypto
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../randomx/src
+    ${liboqs_BINARY_DIR}/include
+)
+
+target_compile_definitions(bitcoin_crypto PRIVATE OQS_ALLOW_STFL_KEY_AND_SIG_GEN)
 
 if(HAVE_SSE41)
   target_compile_definitions(bitcoin_crypto PRIVATE ENABLE_SSE41)

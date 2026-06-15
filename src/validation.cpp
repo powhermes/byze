@@ -3996,7 +3996,8 @@ bool IsQuantumBlockSignaturePolicyRequired(const CBlock& block, const Consensus:
 
 static bool VerifyBlockQuantumSignatures(const CBlock& block)
 {
-    static constexpr size_t XMSS_PUBKEY_SIZE = crypto::xmss_public_key::KEY_SIZE * 3;
+    static constexpr size_t XMSS_PUBKEY_SIZE = BYZE_XMSS_PUBKEY_SIZE;
+    static constexpr size_t SPHINCS_PUBKEY_SIZE = BYZE_SPHINCS_PUBKEY_SIZE;
     static constexpr size_t DUAL_PUBKEY_SIZE = BYZE_DUAL_PUBKEY_BUNDLE_SIZE;
 
     const uint256 block_hash = block.GetHash();
@@ -4028,7 +4029,7 @@ static bool VerifyBlockQuantumSignatures(const CBlock& block)
         block.quantum_signatures.dual_public_key.begin() + XMSS_PUBKEY_SIZE);
     std::vector<uint8_t> sphincs_pubkey_data(
         block.quantum_signatures.dual_public_key.begin() + XMSS_PUBKEY_SIZE,
-        block.quantum_signatures.dual_public_key.end());
+        block.quantum_signatures.dual_public_key.begin() + XMSS_PUBKEY_SIZE + SPHINCS_PUBKEY_SIZE);
 
     crypto::xmss_public_key xmss_pubkey;
     crypto::sphincs_public_key sphincs_pubkey;
