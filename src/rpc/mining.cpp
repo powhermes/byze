@@ -558,7 +558,7 @@ static RPCHelpMan generateblock()
         RegenerateCommitments(block, chainman);
 
         std::string reason, debug;
-        if (!miner.checkBlock(block, {.check_merkle_root = false, .check_pow = true}, reason, debug)) {
+        if (!miner.checkBlock(block, {.check_merkle_root = false, .check_pow = false}, reason, debug)) {
             throw JSONRPCError(RPC_VERIFY_ERROR, strprintf("testBlockValidity failed: %s", reason));
         }
     }
