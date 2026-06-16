@@ -47,11 +47,12 @@
 #include <util/string.h>
 #include <util/time.h>
 #include <util/translation.h>
+
 #include <validation.h>
 #include <validationinterface.h>
 #include <versionbits.h>
 
-#include <crypto/quantum_safe.h>
+#include <crypto/quantum_block_sign.h>
 #include <crypto/quantum_safe_config.h>
 #include <node/mining_controller.h>
 #include <streams.h>
@@ -558,7 +559,7 @@ static RPCHelpMan generateblock()
         RegenerateCommitments(block, chainman);
 
         std::string reason, debug;
-        if (!miner.checkBlock(block, {.check_merkle_root = false, .check_pow = true}, reason, debug)) {
+        if (!miner.checkBlock(block, {.check_merkle_root = false, .check_pow = false}, reason, debug)) {
             throw JSONRPCError(RPC_VERIFY_ERROR, strprintf("testBlockValidity failed: %s", reason));
         }
     }
@@ -657,30 +658,17 @@ static node::MiningController& EnsureMiningController(const node::NodeContext& n
 static bool MaybeSignBlockQuantum(CBlock& block, bool* quantum_signed_out)
 {
     if (quantum_signed_out) *quantum_signed_out = false;
-    block.quantum_signatures.SetNull();
 
     const bool is_mainnet{!Params().IsTestChain()};
     const bool enforce{gArgs.GetBoolArg("-enforcequantumblocksigs", false)};
     const bool require_quantum{is_mainnet || enforce};
     const bool is_genesis{block.GetHash() == Params().GetConsensus().hashGenesisBlock};
-    if (!require_quantum || is_genesis) {
-        return true;
-    }
+    const bool will_sign{require_quantum && !is_genesis};
 
-    crypto::quantum_safe_manager qmgr;
-    if (!qmgr.ensure_modern_keys(BYZE_DEFAULT_XMSS_TREE_HEIGHT, BYZE_DEFAULT_SPHINCS_LEVEL)) {
+    if (!crypto::AttachQuantumBlockSignatures(block, require_quantum, is_genesis)) {
         return false;
     }
-    const uint256 block_hash{block.GetHash()};
-    std::vector<uint8_t> xmss_sig = qmgr.sign(block_hash, crypto::quantum_algorithm::XMSS);
-    std::vector<uint8_t> sphincs_sig = qmgr.sign(block_hash, crypto::quantum_algorithm::SPHINCS_PLUS);
-    if (xmss_sig.size() != BYZE_XMSS_SIGNATURE_SIZE || sphincs_sig.size() != BYZE_SPHINCS_SIGNATURE_SIZE) {
-        return false;
-    }
-    block.quantum_signatures.xmss_signature = std::move(xmss_sig);
-    block.quantum_signatures.sphincs_signature = std::move(sphincs_sig);
-    block.quantum_signatures.dual_public_key = qmgr.get_dual_public_key_bundle();
-    if (quantum_signed_out) *quantum_signed_out = true;
+    if (quantum_signed_out && will_sign) *quantum_signed_out = true;
     return true;
 }
 

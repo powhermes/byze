@@ -6,6 +6,7 @@
 #include <script/sign.h>
 
 #include <consensus/amount.h>
+#include <crypto/quantum_safe_config.h>
 #include <key.h>
 #include <musig.h>
 #include <policy/policy.h>
@@ -988,9 +989,9 @@ public:
     }
     bool CreateQuantumSig(const SigningProvider& provider, std::vector<unsigned char>& xmss_sig, std::vector<unsigned char>& sphincs_sig, std::vector<unsigned char>& dual_pubkey_bundle, const WitnessV1Taproot& output_key, SigVersion sigversion) const override
     {
-        xmss_sig.assign(1028, '\000');
-        sphincs_sig.assign(1024, '\000');
-        dual_pubkey_bundle.assign(192, '\000');
+        xmss_sig.assign(BYZE_XMSS_SIGNATURE_SIZE, '\000');
+        sphincs_sig.assign(BYZE_SPHINCS_SIGNATURE_SIZE, '\000');
+        dual_pubkey_bundle.assign(BYZE_DUAL_PUBKEY_BUNDLE_SIZE, '\000');
         return true;
     }
     std::vector<uint8_t> CreateMuSig2Nonce(const SigningProvider& provider, const CPubKey& aggregate_pubkey, const CPubKey& script_pubkey, const CPubKey& part_pubkey, const uint256* leaf_hash, const uint256* merkle_root, SigVersion sigversion, const SignatureData& sigdata) const override

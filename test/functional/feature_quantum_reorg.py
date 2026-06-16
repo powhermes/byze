@@ -11,9 +11,9 @@ from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
 
 # Keep these in sync with src/crypto/quantum_safe_config.h
-BYZE_XMSS_SIGNATURE_SIZE = 1028
-BYZE_SPHINCS_SIGNATURE_SIZE = 1024
-BYZE_DUAL_PUBKEY_BUNDLE_SIZE = 192
+BYZE_XMSS_SIGNATURE_SIZE = 2500
+BYZE_SPHINCS_SIGNATURE_SIZE = 7856
+BYZE_DUAL_PUBKEY_BUNDLE_SIZE = 100
 
 
 def tx_confirmed_in_chain(node, txid, max_blocks=64):
@@ -88,11 +88,16 @@ class QuantumReorgTest(BitcoinTestFramework):
     def mine_blocks(self, node, num_blocks, *, sync_fun=None):
         """Mine blocks; use sync_fun=self.no_op while the network is intentionally partitioned."""
         sync_cb = self.no_op if sync_fun is None else sync_fun
+        if not hasattr(self, "_mine_addrs"):
+            self._mine_addrs = {}
+        if node.index not in self._mine_addrs:
+            self._mine_addrs[node.index] = node.getnewaddress()
+        addr = self._mine_addrs[node.index]
         for _ in range(num_blocks):
             self.generatetoaddress(
                 node,
                 nblocks=1,
-                address=node.getnewaddress(),
+                address=addr,
                 sync_fun=sync_cb,
             )
 

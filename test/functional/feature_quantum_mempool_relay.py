@@ -26,7 +26,7 @@ class HermesQuantumMempoolRelayTest(BitcoinTestFramework):
         self.num_nodes = 3
         self.extra_args = [["-enforcequantumblocksigs=1", "-fallbackfee=0.001", "-logratelimit=0"]] * self.num_nodes
         # RandomX + quantum block validation during startup/generate can exceed default RPC budgets.
-        self.rpc_timeout = 240
+        self.rpc_timeout = 1200
         self.sync_timeout = 600
 
     def skip_test_if_missing_module(self):
@@ -40,7 +40,8 @@ class HermesQuantumMempoolRelayTest(BitcoinTestFramework):
     def run_test(self):
         n0, n1, n2 = self.nodes
         self.log.info("Fund chain and connect linear topology 0 — 1 — 2")
-        self.generatetoaddress(n0, 110, n0.getnewaddress(), sync_fun=self.no_op)
+        mine_addr = n0.getnewaddress()
+        self.generatetoaddress(n0, 110, mine_addr, sync_fun=self.no_op)
         self.connect_nodes(0, 1)
         self.connect_nodes(1, 2)
         self.sync_all_quantum()
@@ -57,7 +58,7 @@ class HermesQuantumMempoolRelayTest(BitcoinTestFramework):
         assert_equal(set(m1), set(m2))
 
         self.log.info("Node 2 mines and confirms the tx; chain and mempools stay consistent")
-        self.generatetoaddress(n2, 2, n2.getnewaddress())
+        self.generatetoaddress(n2, 2, mine_addr)
         self.sync_all_quantum()
         assert self.tx_confirmed_in_chain(n2, txid), "relay tx was not confirmed on node 2 active chain"
         assert_equal(n0.getrawmempool(), [])

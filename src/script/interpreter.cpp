@@ -1693,9 +1693,9 @@ bool GenericTransactionSignatureChecker<T>::VerifySchnorrSignature(std::span<con
 template <class T>
 bool GenericTransactionSignatureChecker<T>::VerifyQuantumDualSignature(std::span<const unsigned char> xmss_sig, std::span<const unsigned char> sphincs_sig, std::span<const unsigned char> dual_pubkey, const uint256& sighash) const
 {
-    static constexpr size_t XMSS_PUBKEY_SIZE = crypto::xmss_public_key::KEY_SIZE * 3;
-    static constexpr size_t SPHINCS_PUBKEY_SIZE = crypto::sphincs_public_key::KEY_SIZE * 3;
-    static constexpr size_t DUAL_PUBKEY_SIZE = XMSS_PUBKEY_SIZE + SPHINCS_PUBKEY_SIZE;
+    static constexpr size_t XMSS_PUBKEY_SIZE = BYZE_XMSS_PUBKEY_SIZE;
+    static constexpr size_t SPHINCS_PUBKEY_SIZE = BYZE_SPHINCS_PUBKEY_SIZE;
+    static constexpr size_t DUAL_PUBKEY_SIZE = BYZE_DUAL_PUBKEY_BUNDLE_SIZE;
 
     if (xmss_sig.size() != BYZE_XMSS_SIGNATURE_SIZE ||
         sphincs_sig.size() != BYZE_SPHINCS_SIGNATURE_SIZE ||

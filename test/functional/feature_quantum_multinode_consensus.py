@@ -12,9 +12,9 @@ from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error
 
 # Keep these in sync with src/crypto/quantum_safe_config.h
-BYZE_XMSS_SIGNATURE_SIZE = 1028
-BYZE_SPHINCS_SIGNATURE_SIZE = 1024
-BYZE_DUAL_PUBKEY_BUNDLE_SIZE = 192
+BYZE_XMSS_SIGNATURE_SIZE = 2500
+BYZE_SPHINCS_SIGNATURE_SIZE = 7856
+BYZE_DUAL_PUBKEY_BUNDLE_SIZE = 100
 
 
 def ser_quantum_sigdata(*, xmss: bytes, sphincs: bytes, dual: bytes) -> bytes:
@@ -39,7 +39,7 @@ class QuantumMultinodeConsensusTest(BitcoinTestFramework):
         self.extra_args = [["-enforcequantumblocksigs=1", "-fallbackfee=0.001", "-logratelimit=0"]] * self.num_nodes
         # Node RPC proxies use rpc_timeout // 2 for individual calls; createwallet can
         # exceed 120s on slower runs, so keep a larger test-level timeout budget.
-        self.rpc_timeout = 480
+        self.rpc_timeout = 1200
         # Block/mempool sync: peers can lag the miner while validating RandomX + quantum block data.
         self.sync_timeout = 600
 
@@ -55,11 +55,16 @@ class QuantumMultinodeConsensusTest(BitcoinTestFramework):
         # IMPORTANT: `generateblock` mines exactly the provided transactions and is implemented
         # with `use_mempool=false` in this codebase. For "mine whatever is in the mempool" semantics
         # (needed by this test), use the framework wrapper around `generatetoaddress`.
+        if not hasattr(self, "_mine_addrs"):
+            self._mine_addrs = {}
+        if node.index not in self._mine_addrs:
+            self._mine_addrs[node.index] = node.getnewaddress()
+        addr = self._mine_addrs[node.index]
         for _ in range(num_blocks):
             self.generatetoaddress(
                 node,
                 nblocks=1,
-                address=node.getnewaddress(),
+                address=addr,
             )
 
     def sync_and_assert_same_tip(self, stage: str):
@@ -87,7 +92,7 @@ class QuantumMultinodeConsensusTest(BitcoinTestFramework):
             before_tip = node.getbestblockhash()
             assert_raises_rpc_error(
                 -25,
-                "TestBlockValidity failed",
+                "testBlockValidity failed",
                 self.generateblock,
                 node,
                 sync_fun=self.no_op,
@@ -97,6 +102,14 @@ class QuantumMultinodeConsensusTest(BitcoinTestFramework):
             assert_equal(node.getblockcount(), before_height)
             assert_equal(node.getbestblockhash(), before_tip)
         self.sync_and_assert_same_tip(stage)
+
+    def fresh_signed_block_hex(self, node):
+        """Mine a valid signed block without submitting (unique hash per call)."""
+        if not hasattr(self, "_reject_test_addrs"):
+            self._reject_test_addrs = {}
+        if node.index not in self._reject_test_addrs:
+            self._reject_test_addrs[node.index] = node.getnewaddress()
+        return node.__getattr__("generateblock")(self._reject_test_addrs[node.index], [], False)["hex"]
 
     def assert_submitblock_reject_identical(self, block_hex: str, expected_reason: str, stage: str):
         outcomes = []
@@ -357,18 +370,16 @@ class QuantumMultinodeConsensusTest(BitcoinTestFramework):
         self.assert_generateblock_reject_identical(reused_xmss_hex, "reused_xmss_signature_consensus")
 
         self.log.info("Build malformed block quantum signature variants (submitblock path)")
-        tip_hash = n0.getbestblockhash()
-        tip_block_hex = n0.getblock(tip_hash, 0)
         malformed_blocks = [
             (
                 "missing_all_quantum_block_sigs",
-                replace_quantum_sig_tail(tip_block_hex, xmss=b"", sphincs=b"", dual=b""),
+                lambda: replace_quantum_sig_tail(self.fresh_signed_block_hex(n0), xmss=b"", sphincs=b"", dual=b""),
                 "bad-quantum-sig-missing",
             ),
             (
                 "invalid_xmss_block_sig",
-                replace_quantum_sig_tail(
-                    tip_block_hex,
+                lambda: replace_quantum_sig_tail(
+                    self.fresh_signed_block_hex(n0),
                     xmss=bytes([0xAB]) * BYZE_XMSS_SIGNATURE_SIZE,
                     sphincs=bytes([0xBB]) * BYZE_SPHINCS_SIGNATURE_SIZE,
                     dual=bytes([0xCC]) * BYZE_DUAL_PUBKEY_BUNDLE_SIZE,
@@ -377,8 +388,8 @@ class QuantumMultinodeConsensusTest(BitcoinTestFramework):
             ),
             (
                 "invalid_sphincs_block_sig",
-                replace_quantum_sig_tail(
-                    tip_block_hex,
+                lambda: replace_quantum_sig_tail(
+                    self.fresh_signed_block_hex(n0),
                     xmss=bytes([0xAA]) * BYZE_XMSS_SIGNATURE_SIZE,
                     sphincs=bytes([0xBC]) * BYZE_SPHINCS_SIGNATURE_SIZE,
                     dual=bytes([0xCC]) * BYZE_DUAL_PUBKEY_BUNDLE_SIZE,
@@ -387,8 +398,8 @@ class QuantumMultinodeConsensusTest(BitcoinTestFramework):
             ),
             (
                 "invalid_dual_bundle",
-                replace_quantum_sig_tail(
-                    tip_block_hex,
+                lambda: replace_quantum_sig_tail(
+                    self.fresh_signed_block_hex(n0),
                     xmss=bytes([0xAA]) * BYZE_XMSS_SIGNATURE_SIZE,
                     sphincs=bytes([0xBB]) * BYZE_SPHINCS_SIGNATURE_SIZE,
                     dual=bytes([0xCD]) * BYZE_DUAL_PUBKEY_BUNDLE_SIZE,
@@ -397,8 +408,8 @@ class QuantumMultinodeConsensusTest(BitcoinTestFramework):
             ),
         ]
 
-        for name, bad_block_hex, reject_reason in malformed_blocks:
-            self.assert_submitblock_reject_identical(bad_block_hex, reject_reason, name)
+        for name, bad_block_factory, reject_reason in malformed_blocks:
+            self.assert_submitblock_reject_identical(bad_block_factory(), reject_reason, name)
 
         self.log.info("Mixed sequence validity: valid tx -> invalid tx -> valid tx")
         mixed_valid_1 = self.build_signed_quantum_tx(n0, n2.getnewaddress(), 0.21)

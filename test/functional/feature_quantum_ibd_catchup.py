@@ -10,9 +10,9 @@ from test_framework.util import assert_equal
 from decimal import Decimal
 
 # Keep these in sync with src/crypto/quantum_safe_config.h
-BYZE_XMSS_SIGNATURE_SIZE = 1028
-BYZE_SPHINCS_SIGNATURE_SIZE = 1024
-BYZE_DUAL_PUBKEY_BUNDLE_SIZE = 192
+BYZE_XMSS_SIGNATURE_SIZE = 2500
+BYZE_SPHINCS_SIGNATURE_SIZE = 7856
+BYZE_DUAL_PUBKEY_BUNDLE_SIZE = 100
 
 
 def tx_confirmed_in_chain(node, txid, max_blocks=512):
@@ -49,7 +49,11 @@ class QuantumIBDCatchupTest(BitcoinTestFramework):
 
     def get_quantum_address(self, node):
         # Make address type explicit so this test always builds spendable witness-v1 (quantum) UTXOs.
-        return node.getnewaddress(address_type="bech32m")
+        if not hasattr(self, "_quantum_addrs"):
+            self._quantum_addrs = {}
+        if node.index not in self._quantum_addrs:
+            self._quantum_addrs[node.index] = node.getnewaddress(address_type="bech32m")
+        return self._quantum_addrs[node.index]
 
     def ensure_spendable_utxos(self, node, *, min_count=1, max_extra_blocks=240):
         spendable = [u for u in node.listunspent() if u.get("spendable", False)]

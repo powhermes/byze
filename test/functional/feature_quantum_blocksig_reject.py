@@ -11,9 +11,9 @@ from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
 
 # Keep these in sync with src/crypto/quantum_safe_config.h
-BYZE_XMSS_SIGNATURE_SIZE = 1028
-BYZE_SPHINCS_SIGNATURE_SIZE = 1024
-BYZE_DUAL_PUBKEY_BUNDLE_SIZE = 192
+BYZE_XMSS_SIGNATURE_SIZE = 2500
+BYZE_SPHINCS_SIGNATURE_SIZE = 7856
+BYZE_DUAL_PUBKEY_BUNDLE_SIZE = 100
 
 
 def ser_quantum_sigdata(*, xmss: bytes, sphincs: bytes, dual: bytes) -> bytes:
@@ -52,7 +52,7 @@ class QuantumBlockSigRejectTest(BitcoinTestFramework):
         self.num_nodes = 3
         self.extra_args = [["-enforcequantumblocksigs=1", "-logratelimit=0"]] * self.num_nodes
         # RandomX FULL_MEM dataset initialization can exceed the default 60s RPC timeout on slower CI.
-        self.rpc_timeout = 180
+        self.rpc_timeout = 600
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
@@ -69,17 +69,20 @@ class QuantumBlockSigRejectTest(BitcoinTestFramework):
             assert_equal(node.getblockcount(), before_height)
             assert_equal(node.getbestblockhash(), before_tip)
 
+    def fresh_signed_block_hex(self):
+        """Mine a valid signed block without submitting (unique hash per call)."""
+        n0 = self.nodes[0]
+        if not hasattr(self, "_mine_addr"):
+            self._mine_addr = n0.getnewaddress()
+        return n0.__getattr__("generateblock")(self._mine_addr, [], False)["hex"]
+
     def run_test(self):
         n0 = self.nodes[0]
-
-        self.log.info("Mine one valid quantum-signed block on enforced regtest")
-        self.generateblock(n0, output=n0.getnewaddress(), transactions=[])
-
-        tip = n0.getbestblockhash()
-        height = n0.getblockcount()
-        block_hex = n0.getblock(tip, 0)
+        before_height = n0.getblockcount()
+        before_tip = n0.getbestblockhash()
 
         self.log.info("Submit block with quantum signatures removed entirely")
+        block_hex = self.fresh_signed_block_hex()
         missing_hex = replace_quantum_sig_tail(block_hex, xmss=b"", sphincs=b"", dual=b"")
         self.assert_reject_everywhere("missing_quantum_signatures", missing_hex, "bad-quantum-sig-missing")
 
@@ -87,6 +90,7 @@ class QuantumBlockSigRejectTest(BitcoinTestFramework):
         # present but VerifyBlockQuantumSignatures fails -> bad-quantum-sig.
 
         self.log.info("Submit block with only XMSS signature present (SPHINCS missing -> bad-quantum-sig-missing)")
+        block_hex = self.fresh_signed_block_hex()
         xmss_only_hex = replace_quantum_sig_tail(
             block_hex,
             xmss=b"\x11" * BYZE_XMSS_SIGNATURE_SIZE,
@@ -96,6 +100,7 @@ class QuantumBlockSigRejectTest(BitcoinTestFramework):
         self.assert_reject_everywhere("partial_xmss_only", xmss_only_hex, "bad-quantum-sig-missing")
 
         self.log.info("Submit block with only SPHINCS signature present (XMSS missing -> bad-quantum-sig-missing)")
+        block_hex = self.fresh_signed_block_hex()
         sphincs_only_hex = replace_quantum_sig_tail(
             block_hex,
             xmss=b"",
@@ -105,6 +110,7 @@ class QuantumBlockSigRejectTest(BitcoinTestFramework):
         self.assert_reject_everywhere("partial_sphincs_only", sphincs_only_hex, "bad-quantum-sig-missing")
 
         self.log.info("XMSS signature corrupted")
+        block_hex = self.fresh_signed_block_hex()
         xmss_corrupt_hex = replace_quantum_sig_tail(
             block_hex,
             xmss=bytes([0xAB]) * BYZE_XMSS_SIGNATURE_SIZE,
@@ -114,6 +120,7 @@ class QuantumBlockSigRejectTest(BitcoinTestFramework):
         self.assert_reject_everywhere("xmss_corrupted", xmss_corrupt_hex, "bad-quantum-sig")
 
         self.log.info("SPHINCS signature corrupted")
+        block_hex = self.fresh_signed_block_hex()
         sphincs_corrupt_hex = replace_quantum_sig_tail(
             block_hex,
             xmss=bytes([0xAA]) * BYZE_XMSS_SIGNATURE_SIZE,
@@ -123,6 +130,7 @@ class QuantumBlockSigRejectTest(BitcoinTestFramework):
         self.assert_reject_everywhere("sphincs_corrupted", sphincs_corrupt_hex, "bad-quantum-sig")
 
         self.log.info("Dual public key bundle corrupted")
+        block_hex = self.fresh_signed_block_hex()
         dual_corrupt_hex = replace_quantum_sig_tail(
             block_hex,
             xmss=bytes([0xAA]) * BYZE_XMSS_SIGNATURE_SIZE,
@@ -132,6 +140,7 @@ class QuantumBlockSigRejectTest(BitcoinTestFramework):
         self.assert_reject_everywhere("dual_bundle_corrupted", dual_corrupt_hex, "bad-quantum-sig")
 
         self.log.info("Correct sizes but invalid cryptographic signatures")
+        block_hex = self.fresh_signed_block_hex()
         invalid_crypto_hex = replace_quantum_sig_tail(
             block_hex,
             xmss=bytes([0x5A]) * BYZE_XMSS_SIGNATURE_SIZE,
@@ -143,8 +152,8 @@ class QuantumBlockSigRejectTest(BitcoinTestFramework):
         self.log.info("Verify chain height and best block hash are unchanged everywhere")
         self.sync_all()
         for node in self.nodes:
-            assert_equal(node.getblockcount(), height)
-            assert_equal(node.getbestblockhash(), tip)
+            assert_equal(node.getblockcount(), before_height)
+            assert_equal(node.getbestblockhash(), before_tip)
 
 
 if __name__ == "__main__":
