@@ -1,9 +1,22 @@
-Byze (BYZ)
-========================================================================================
+# Byze — Quantum-hardened RandomX blockchain
 
-Project repository: https://github.com/powhermes/byze
+**Ecosystem hub:** explorer, browser wallet, mining pool, downloads, and open-source development.
 
-Byze is a Bitcoin Core-derived chain with:
+| | |
+|---|---|
+| **Website** | https://byze.org/ |
+| **Explorer** | https://explorer.byze.org/ |
+| **Pool** | https://pool.byze.org/pool/ |
+| **GitHub** | https://github.com/powhermes/byze |
+| **Downloads** | https://github.com/powhermes/byze/releases/tag/v0.2.0-mainnet |
+| **Miner** | https://github.com/powhermes/byze-miner |
+| **Web wallet** | https://wallet.byze.org/ |
+
+> **Official org only:** `github.com/powhermes`. We are **not** affiliated with `github.com/byze-chain` or [this copycat Bitcointalk ANN](https://bitcointalk.org/index.php?topic=5586169.0). Build and download only from the links above.
+
+## About
+
+Byze (BYZ) is a Bitcoin Core-derived chain with:
 - **RandomX** proof-of-work (CPU-friendly; replaces SHA256d)
 - **Dual post-quantum block signatures**: **XMSS + SPHINCS+** enforced on mainnet blocks
 
