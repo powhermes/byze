@@ -11,8 +11,9 @@
 | **Downloads** | https://github.com/powhermes/byze/releases/tag/v0.2.0-mainnet |
 | **Miner** | https://github.com/powhermes/byze-miner |
 | **Web wallet** | https://wallet.byze.org/ |
+| **Community** | https://www.altcoinstalks.com/index.php?topic=343900.msg2131627#msg2131627 |
 
-> **Official org only:** `github.com/powhermes`. We are **not** affiliated with `github.com/byze-chain` or [this copycat Bitcointalk ANN](https://bitcointalk.org/index.php?topic=5586169.0). Build and download only from the links above.
+> **Official org only:** `github.com/powhermes`. We are **not** affiliated with `github.com/byze-chain` or unauthorized copycat repos/announcements. Build and download only from the links above.
 
 ## About
 
