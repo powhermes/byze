@@ -27,6 +27,7 @@
 #include <index/blockfilterindex.h>
 #include <index/coinstatsindex.h>
 #include <index/txindex.h>
+#include <crypto/randomx_hash.h>
 #include <init/common.h>
 #include <interfaces/chain.h>
 #include <interfaces/init.h>
@@ -653,6 +654,9 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
                              Ticks<std::chrono::seconds>(DEFAULT_MAX_TIP_AGE)),
                    ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-printpriority", strprintf("Log transaction fee rate in %s/kvB when mining blocks (default: %u)", CURRENCY_UNIT, DEFAULT_PRINT_MODIFIED_FEE), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-randomxfullmem", "Allocate the full RandomX dataset (~2 GB) for faster PoW verification. "
+                   "Recommended for mining nodes. Pool/relay nodes that only validate can omit this to save RAM and reduce startup time (default: 0)",
+                   ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-uacomment=<cmt>", "Append comment to the user agent string", ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);
 
     SetupChainParamsBaseOptions(argsman);
@@ -1416,6 +1420,18 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     }
 
     LogInfo("Using at most %i automatic connections (%i file descriptors available)", nMaxConnections, available_fds);
+
+    // Initialize RandomX now so startup cost is visible in logs.
+    // Full memory mode (~2GB dataset) is opt-in via -randomxfullmem.
+    // Light mode (~256MB cache) is the default and produces identical hashes.
+    {
+        const bool full_mem = args.GetBoolArg("-randomxfullmem", false);
+        const bool is_regtest = chainparams.IsTestChain();
+        if (!InitializeRandomX(/*disable_jit_for_testing=*/is_regtest, /*force_full_mem=*/full_mem)) {
+            return InitError(_("Failed to initialize RandomX proof-of-work engine."));
+        }
+        LogInfo("RandomX initialized (%s mode)\n", full_mem ? "full-memory" : "light");
+    }
 
     // Warn about relative -datadir path.
     if (args.IsArgSet("-datadir") && !args.GetPathArg("-datadir").is_absolute()) {

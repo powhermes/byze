@@ -51,37 +51,43 @@ static std::mutex g_rpc_mining_exec_mutex;
 
 // Initialize RandomX cache and VM (thread-safe)
 // For regtest, disable JIT to prevent RPC thread starvation
-bool InitializeRandomX(bool disable_jit_for_testing)
+bool InitializeRandomX(bool disable_jit_for_testing, bool force_full_mem)
 {
     std::lock_guard<std::mutex> lock(randomx_mutex);
-    
+
     if (randomx_initialized) {
         return true;
     }
-    
+
     // Get recommended flags for this machine
     randomx_flags flags = randomx_get_flags();
-    
-    // Enable JIT and full memory mode for best performance (unless disabled for testing)
-    if (!disable_jit_for_testing) {
-        flags = static_cast<randomx_flags>(flags | RANDOMX_FLAG_JIT | RANDOMX_FLAG_FULL_MEM);
+
+    // Light mode and full mode produce identical hashes — the difference is only
+    // speed vs. memory use. Light mode (~256MB cache) is sufficient for validation.
+    // Full mode (~2GB dataset) is faster per-hash and worthwhile for mining nodes.
+    if (force_full_mem) {
+        if (!disable_jit_for_testing) {
+            flags = static_cast<randomx_flags>(flags | RANDOMX_FLAG_JIT | RANDOMX_FLAG_FULL_MEM);
+        } else {
+            flags = static_cast<randomx_flags>(flags | RANDOMX_FLAG_FULL_MEM);
+        }
     } else {
-        // For regtest: use interpreter mode (no JIT) to prevent RPC thread starvation
-        flags = static_cast<randomx_flags>(flags | RANDOMX_FLAG_FULL_MEM);
+        // Light mode: allocate cache only, skip the 2GB dataset.
+        // JIT still helps with hash speed even without the dataset.
+        if (!disable_jit_for_testing) {
+            flags = static_cast<randomx_flags>(flags | RANDOMX_FLAG_JIT);
+        }
     }
-    
+
     // Allocate and initialize cache
     g_cache = randomx_alloc_cache(flags);
     if (!g_cache) {
         LogError("RandomX: Failed to allocate cache\n");
         return false;
     }
-    
+
     randomx_init_cache(g_cache, BYZE_RANDOMX_KEY_V1, sizeof(BYZE_RANDOMX_KEY_V1));
-    
-    // For full memory mode, we need a dataset
-    // IMPORTANT: Both mining and validation MUST use the same mode (full memory)
-    // to ensure consistent hashing. Light mode produces different hashes!
+
     randomx_dataset* dataset = nullptr;
     if (flags & RANDOMX_FLAG_FULL_MEM) {
         // Allocate and initialize dataset for full memory mode

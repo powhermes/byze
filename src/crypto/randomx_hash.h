@@ -19,8 +19,11 @@ struct randomx_vm;
 /**
  * Initialize RandomX (internal, called automatically)
  * @param disable_jit_for_testing If true, disable JIT (for regtest to prevent RPC starvation)
+ * @param force_full_mem If true, allocate the full ~2GB dataset (faster verification, high RAM use).
+ *                       If false (default), use light mode (~256MB cache, slower per-hash but identical results).
+ *                       Pool/relay nodes that do not mine should leave this false.
  */
-bool InitializeRandomX(bool disable_jit_for_testing = false);
+bool InitializeRandomX(bool disable_jit_for_testing = false, bool force_full_mem = false);
 
 /**
  * Calculate RandomX hash of a block header.
