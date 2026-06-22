@@ -9,7 +9,7 @@ OUT="${ROOT}/release/v0.2.1/linux-x86_64"
 TARBALL="${ROOT}/release/byze-core-0.2.1-linux-x86_64.tar.gz"
 
 echo "==> Configure (Release + GUI)"
-cmake -B "${BUILD}" -DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=ON
+cmake -S "${ROOT}" -B "${BUILD}" -DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=ON -DENABLE_IPC=OFF
 
 echo "==> Build ($(nproc) cores)"
 cmake --build "${BUILD}" -j"$(nproc)"
