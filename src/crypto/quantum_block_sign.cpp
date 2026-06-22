@@ -22,6 +22,10 @@ namespace {
 constexpr size_t QUANTUM_BLOCK_KEYGEN_STACK = 8 * 1024 * 1024;
 constexpr size_t QUANTUM_BLOCK_SIGN_STACK = 16 * 1024 * 1024;
 
+// Rotate the block signing key when this many leaves have been used.
+// Tree height 10 → 1024 leaves total; rotate at 950 to keep a safety margin.
+constexpr uint32_t XMSS_ROTATION_THRESHOLD = 950;
+
 template <typename Fn>
 bool RunOnLargeStack(size_t stack_size, Fn&& fn)
 {
@@ -84,6 +88,23 @@ bool SignBlockWithReadyKeys(CBlock& block)
     const bool ok = RunOnLargeStack(QUANTUM_BLOCK_SIGN_STACK, [&]() -> bool {
         std::lock_guard<std::mutex> lock(g_block_signer_mutex);
         if (!g_block_signer_ready) return false;
+
+        // Auto-rotate XMSS key when leaves are nearly exhausted.
+        // The pubkey bundle is embedded in every block, so rotation is
+        // transparent to stratum — callers never need to track the key.
+        const auto xmss_index = g_block_signer.get_xmss_index();
+        if (xmss_index && *xmss_index >= XMSS_ROTATION_THRESHOLD) {
+            LogPrintf("Quantum block sign: XMSS key exhaustion threshold reached "
+                      "(index=%u), rotating to a fresh key pair\n", *xmss_index);
+            unsigned char new_seed[32];
+            GetRandBytes(new_seed);
+            if (!g_block_signer.generate_dual_keys_from_entropy_ikm(new_seed, sizeof(new_seed))) {
+                LogError("Quantum block sign: key rotation failed\n");
+                return false;
+            }
+            LogPrintf("Quantum block sign: key rotation complete\n");
+        }
+
         xmss_sig = g_block_signer.sign(block_hash, quantum_algorithm::XMSS);
         if (xmss_sig.size() != BYZE_XMSS_SIGNATURE_SIZE) {
             LogError("Quantum block sign: XMSS sign failed (size=%zu)\n", xmss_sig.size());
