@@ -42,26 +42,12 @@ static randomx_vm* g_vm = nullptr;
 static randomx_flags g_init_flags = RANDOMX_FLAG_DEFAULT;
 static bool randomx_initialized = false;
 
-// Validation defaults to LIGHT mode (cache only, ~256 MB; no ~2 GB dataset build at
-// startup). Light and full(dataset) mode produce identical hashes for a given key, so
-// this is consensus-safe; full mode is only a speed optimization for bulk mining.
-// Set via -randomxfullmem before RandomX is first used.
-static bool g_use_full_mem = false;
-
 static RandomXMiningContext* g_rpc_mining_ctx = nullptr;
 static std::mutex g_rpc_ctx_mutex;
 /** Serializes RPC PoW search; VMs are not safe across concurrent RPC handlers. */
 static std::mutex g_rpc_mining_exec_mutex;
 
 } // anonymous namespace
-
-// Select RandomX memory mode for validation. Must be called before the first
-// RandomXHash()/InitializeRandomX() call (i.e. early in init). Default: light mode.
-void SetRandomXFullMem(bool enable)
-{
-    std::lock_guard<std::mutex> lock(randomx_mutex);
-    g_use_full_mem = enable;
-}
 
 // Initialize RandomX cache and VM (thread-safe)
 // For regtest, disable JIT to prevent RPC thread starvation
@@ -76,14 +62,11 @@ bool InitializeRandomX(bool disable_jit_for_testing)
     // Get recommended flags for this machine
     randomx_flags flags = randomx_get_flags();
     
-    // JIT for speed (unless disabled for regtest, where the interpreter avoids RPC thread
-    // starvation). FULL_MEM (the ~2 GB dataset) is OFF by default: validation only needs to
-    // hash one header per block, which light mode does with identical results. Opt in with
-    // -randomxfullmem (e.g. for a node that also runs the built-in miner heavily).
+    // Enable JIT and full memory mode for best performance (unless disabled for testing)
     if (!disable_jit_for_testing) {
-        flags = static_cast<randomx_flags>(flags | RANDOMX_FLAG_JIT);
-    }
-    if (g_use_full_mem) {
+        flags = static_cast<randomx_flags>(flags | RANDOMX_FLAG_JIT | RANDOMX_FLAG_FULL_MEM);
+    } else {
+        // For regtest: use interpreter mode (no JIT) to prevent RPC thread starvation
         flags = static_cast<randomx_flags>(flags | RANDOMX_FLAG_FULL_MEM);
     }
     
@@ -217,24 +200,19 @@ RandomXMiningContext* CreateMiningContext(size_t threads, bool disable_jit, bool
     bool owns_cache_dataset = true;
     randomx_flags flags = randomx_get_flags();
 
-    bool shared = false;
     if (share_global_dataset) {
         std::lock_guard<std::mutex> lock(randomx_mutex);
-        // Only share when validation actually built a dataset. With light-mode validation
-        // (the default) there is no global dataset, so fall through and build a dedicated
-        // full-memory dataset for mining throughput instead of mining in slow light mode.
-        if (randomx_initialized && g_cache && g_dataset) {
-            cache = g_cache;
-            dataset = g_dataset;
-            flags = g_init_flags; // VMs must match validation flags exactly
-            owns_cache_dataset = false;
-            shared = true;
-            LogInfo("RandomX: Reusing validation cache/dataset for mining context\n");
-        } else {
-            LogInfo("RandomX: validation is light-mode; building a dedicated full-memory dataset for mining\n");
+        if (!randomx_initialized || !g_cache) {
+            LogError("RandomX: Cannot share global dataset before validation RandomX is initialized\n");
+            return nullptr;
         }
-    }
-    if (!shared) {
+        cache = g_cache;
+        dataset = g_dataset;
+        flags = g_init_flags; // VMs must match validation flags exactly
+        owns_cache_dataset = false;
+        disable_jit = false; // unused when sharing; silences -Wunused-parameter
+        LogInfo("RandomX: Reusing validation cache/dataset for mining context\n");
+    } else {
         // Use the same key as consensus validation (consensus-critical; see above).
         constexpr unsigned char BYZE_RANDOMX_KEY_V1[] = {
             0x48, 0x45, 0x52, 0x4D,
