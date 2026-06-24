@@ -23,6 +23,14 @@ struct randomx_vm;
 bool InitializeRandomX(bool disable_jit_for_testing = false);
 
 /**
+ * Select RandomX memory mode for consensus validation.
+ * @param enable true = full-memory (~2 GB dataset, faster bulk hashing);
+ *               false (default) = light mode (~256 MB cache, no dataset, fast startup).
+ * Light and full modes produce identical hashes. Call before RandomX is first used.
+ */
+void SetRandomXFullMem(bool enable);
+
+/**
  * Calculate RandomX hash of a block header.
  * This replaces SHA256 double-hash for proof-of-work in Byze.
  * 
