@@ -65,6 +65,12 @@ static constexpr int64_t UNKNOWN_TIME = std::numeric_limits<int64_t>::max();
 //! Default for -keypool
 static const unsigned int DEFAULT_KEYPOOL_SIZE = 1000;
 
+//! Byze quantum addresses require a full XMSS keygen per index, so a 1000-deep keypool
+//! would mean thousands of keygens (minutes) at wallet creation. Default the quantum
+//! keypool small; addresses top up lazily as they are handed out. Restore relies on a
+//! gap-limit rescan rather than a large pre-derived pool.
+static const unsigned int DEFAULT_QUANTUM_KEYPOOL_SIZE = 20;
+
 std::vector<CKeyID> GetAffectedKeys(const CScript& spk, const SigningProvider& provider);
 
 struct WalletDestination

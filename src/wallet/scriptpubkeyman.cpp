@@ -855,6 +855,15 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const 
         const int32_t pool_index = m_wallet_descriptor.next_index;
         if (const std::optional<CTxDestination> qdest = m_storage.GetQuantumTaprootAtIndex(pool_index)) {
             scripts_temp[0] = GetScriptForDestination(*qdest);
+        } else if (desc_addr_type && *desc_addr_type == OutputType::BECH32M) {
+            // Byze is quantum-only: consensus requires every witness-v1 output to carry a
+            // quantum dual-signature program (see VerifyWitnessProgram in interpreter.cpp).
+            // A plain taproot key-path address is unspendable on this chain, so we must NOT
+            // silently fall back to the standard descriptor key here. GetQuantumTaprootAtIndex
+            // returns nullopt when the quantum HD root is unavailable (wallet locked or
+            // watch-only) -> surface that instead of stranding receives or emitting standard
+            // change that later trips the spend guard ("all wallet transactions blocked").
+            return util::Error{_("Cannot derive a quantum address: the quantum key is unavailable. Unlock the wallet (or import the quantum HD key) and try again.")};
         }
 
         CTxDestination dest;

@@ -480,10 +480,30 @@ bool CWallet::IsQuantumMine(const CScript& script) const
 std::optional<CTxDestination> CWallet::GetQuantumTaprootAtIndex(uint32_t index) const
 {
     AssertLockHeld(cs_wallet);
-    const std::optional<CExtKey> master = TryGetTaprootDescriptorRootExtKey();
-    if (!master) return std::nullopt;
     std::array<uint8_t, 32> program{};
-    if (!DeriveQuantumProgramAtIndex(*master, index, program)) return std::nullopt;
+    bool have_program = false;
+
+    // Fast path: a full XMSS keygen (1024-leaf Merkle tree) is required to derive an
+    // index's program, so reuse the cached 32-byte program when this index was already
+    // derived. Without this, keypool top-up would re-keygen every index on each call.
+    {
+        WalletBatch batch(GetDatabase());
+        std::vector<unsigned char> packed;
+        if (batch.ReadQuantumIndexState(index, packed) && !packed.empty()) {
+            uint8_t fmt = 0, origin = 0;
+            bool enc = false;
+            std::vector<uint8_t> payload;
+            if (UnpackQuantumDbRecord(packed, fmt, origin, enc, program, payload)) {
+                have_program = true;
+            }
+        }
+    }
+
+    if (!have_program) {
+        const std::optional<CExtKey> master = TryGetTaprootDescriptorRootExtKey();
+        if (!master) return std::nullopt;
+        if (!DeriveQuantumProgramAtIndex(*master, index, program)) return std::nullopt;
+    }
     const XOnlyPubKey xonly{std::span<const unsigned char>(program.data(), 32)};
     return WitnessV1Taproot{xonly};
 }

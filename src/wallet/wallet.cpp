@@ -3021,7 +3021,7 @@ std::shared_ptr<CWallet> CWallet::Create(WalletContext& context, const std::stri
     // TODO: Can't use std::make_shared because we need a custom deleter but
     // should be possible to use std::allocate_shared.
     std::shared_ptr<CWallet> walletInstance(new CWallet(chain, name, std::move(database)), FlushAndDeleteWallet);
-    walletInstance->m_keypool_size = std::max(args.GetIntArg("-keypool", DEFAULT_KEYPOOL_SIZE), int64_t{1});
+    walletInstance->m_keypool_size = std::max(args.GetIntArg("-keypool", DEFAULT_QUANTUM_KEYPOOL_SIZE), int64_t{1});
     walletInstance->m_notify_tx_changed_script = args.GetArg("-walletnotify", "");
 
     // Load wallet
