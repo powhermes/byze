@@ -538,16 +538,22 @@ std::optional<uint32_t> CWallet::FindReceiveIndexForQuantumProgram(std::span<con
         // deterministic receive indices up to the descriptor's next index.
         const int32_t scan_upto = spkm->GetWalletDescriptor().next_index;
         if (scan_upto > 0) {
-            const std::optional<CExtKey> master = TryGetTaprootDescriptorRootExtKey();
-            if (master) {
-                for (int32_t idx = 0; idx < scan_upto; ++idx) {
-                    std::array<uint8_t, 32> derived{};
-                    if (!DeriveQuantumProgramAtIndex(*master, static_cast<uint32_t>(idx), derived)) {
-                        continue;
-                    }
-                    if (std::memcmp(derived.data(), program.data(), program.size()) == 0) {
-                        return static_cast<uint32_t>(idx);
-                    }
+            // Byze: read each index's CACHED 32-byte program instead of running a full XMSS
+            // keygen per index. IsQuantumMine() calls this for every output processed during
+            // wallet load, so deriving here is O(txouts * next_index) keygens and effectively
+            // hangs load on a wallet with any history. Every handed-out index is cached; an
+            // uncached index below next_index was never actually used, so skipping it is safe.
+            WalletBatch batch(GetDatabase());
+            for (int32_t idx = 0; idx < scan_upto; ++idx) {
+                std::vector<unsigned char> packed;
+                if (!batch.ReadQuantumIndexState(idx, packed) || packed.empty()) continue;
+                uint8_t fmt = 0, origin = 0;
+                bool enc = false;
+                std::array<uint8_t, 32> cached_prog{};
+                std::vector<uint8_t> payload;
+                if (!UnpackQuantumDbRecord(packed, fmt, origin, enc, cached_prog, payload)) continue;
+                if (std::memcmp(cached_prog.data(), program.data(), program.size()) == 0) {
+                    return static_cast<uint32_t>(idx);
                 }
             }
         }

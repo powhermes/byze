@@ -1029,8 +1029,16 @@ bool DescriptorScriptPubKeyMan::TopUpWithDB(WalletBatch& batch, unsigned int siz
         target_size = m_keypool_size;
     }
 
-    // Calculate the new range_end
-    int32_t new_range_end = std::max(m_wallet_descriptor.next_index + (int32_t)target_size, m_wallet_descriptor.range_end);
+    // Calculate the new range_end.
+    // Byze: a quantum keygen (full ~1024-leaf XMSS Merkle tree per index) is very expensive
+    // (~1s each). Do NOT grow the keypool up to a stale, oversized range_end that an old
+    // wallet may have persisted (e.g. a former large -keypool): that forces re-deriving
+    // thousands of unused lookahead keys on every load, effectively hanging wallet load.
+    // Fill only to next_index + target_size, but never below what is already cached so the
+    // (range_end - 1 == m_max_cached_index) invariant asserted below still holds.
+    int32_t new_range_end = std::max(m_wallet_descriptor.next_index + (int32_t)target_size, m_max_cached_index + 1);
+    WalletLogPrintf("TopUp: next_index=%d target_size=%u prev_range_end=%d max_cached=%d -> new_range_end=%d\n",
+                    m_wallet_descriptor.next_index, target_size, m_wallet_descriptor.range_end, m_max_cached_index, new_range_end);
 
     // If the descriptor is not ranged, we actually just want to fill the first cache item
     if (!m_wallet_descriptor.descriptor->IsRange()) {
