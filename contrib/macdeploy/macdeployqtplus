@@ -145,8 +145,17 @@ class FrameworkInfo(object):
 class ApplicationBundleInfo(object):
     def __init__(self, path: str):
         self.path = path
-        # for backwards compatibility reasons, this must remain as Bitcoin-Qt
-        self.binaryPath = os.path.join(path, "Contents", "MacOS", "Bitcoin-Qt")
+        executable_name = "Bitcoin-Qt"
+        info_plist = os.path.join(path, "Contents", "Info.plist")
+        if os.path.exists(info_plist):
+            try:
+                import plistlib
+                with open(info_plist, "rb") as plist_file:
+                    plist = plistlib.load(plist_file)
+                    executable_name = plist.get("CFBundleExecutable", executable_name)
+            except Exception:
+                pass
+        self.binaryPath = os.path.join(path, "Contents", "MacOS", executable_name)
         if not os.path.exists(self.binaryPath):
             raise RuntimeError(f"Could not find bundle binary for {path}")
         self.resourcesPath = os.path.join(path, "Contents", "Resources")
