@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { margin: 2.5cm 2.8cm; size: A4; }
+  body { font-family: "Times New Roman", Times, serif; font-size: 11pt; line-height: 1.5; color: #000; }
+  h1 { font-size: 16pt; margin-top: 1.4em; margin-bottom: 0.4em; }
+  h2 { font-size: 13pt; margin-top: 1.2em; margin-bottom: 0.3em; }
+  h3 { font-size: 11pt; margin-top: 1em; margin-bottom: 0.2em; font-style: italic; }
+  p { margin: 0.5em 0; text-align: justify; }
+  a { color: #000066; }
+  pre, code { font-family: "Courier New", Courier, monospace; font-size: 9.5pt; }
+  pre { background: #f8f8f8; border: 1px solid #ddd; padding: 8px 12px; margin: 0.7em 0; white-space: pre-wrap; }
+  table { border-collapse: collapse; width: 100%; margin: 0.8em 0; font-size: 10pt; }
+  th, td { border: 1px solid #aaa; padding: 5px 9px; text-align: left; vertical-align: top; }
+  th { background: #eee; font-weight: bold; }
+  .toc a { text-decoration: none; }
+  .toc li { margin: 2px 0; }
+  ul, ol { margin: 0.4em 0 0.4em 1.5em; }
+  li { margin: 0.2em 0; }
+  .version { margin-bottom: 0.2em; font-weight: bold; }
+  .authors { margin-bottom: 1em; font-weight: bold; }
+  hr { border: none; border-top: 1px solid #999; margin: 1.4em auto; width: 50%; }
+  .abstract-note { font-weight: bold; }
+  .warn { background: #fff8dc; border-left: 3px solid #cc8800; padding: 4px 10px; margin: 0.6em 0; }
+</style>
+</head>
+<body>
+
+<h1 id="top">Byze: A Peer-to-Peer Electronic Cash System with RandomX Proof-of-Work and Post-Quantum Signatures</h1>
+
+<p class="version">Version 0.1.1 — June 2026</p>
+<p class="authors">Authors: Byze contributors (<a href="https://github.com/powhermes/byze">powhermes/byze</a>)</p>
+
+<hr>
+
+<h2>Contents</h2>
+<ol class="toc">
+  <li><a href="#abstract">Abstract</a></li>
+  <li><a href="#intro">Introduction</a></li>
+  <li><a href="#transactions">Transactions</a></li>
+  <li><a href="#blocks">Timestamp Server and Blocks</a></li>
+  <li><a href="#pow">Proof-of-Work (RandomX)</a></li>
+  <li><a href="#pq">Post-Quantum Signatures</a></li>
+  <li><a href="#network">Network</a></li>
+  <li><a href="#incentive">Incentive and Monetary Policy</a></li>
+  <li><a href="#diskspace">Reclaiming Disk Space</a></li>
+  <li><a href="#splitting">Splitting and Combining Value</a></li>
+  <li><a href="#privacy">Privacy</a></li>
+  <li><a href="#security">Security Analysis</a></li>
+  <li><a href="#comparison">Comparison with Bitcoin</a></li>
+  <li><a href="#roadmap">Roadmap and Evolution</a></li>
+  <li><a href="#conclusion">Conclusion</a></li>
+  <li><a href="#references">References</a></li>
+  <li><a href="#appendix-a">Appendix A — Wire and consensus constants</a></li>
+  <li><a href="#appendix-b">Appendix B — Example quantum output</a></li>
+  <li><a href="#appendix-c">Appendix C — Block serialization tail (mainnet)</a></li>
+  <li><a href="#appendix-d">Appendix D — Mining and pool protocol</a></li>
+</ol>
+
+<hr>
+
+<h2 id="abstract">1.1 Abstract</h2>
+<p>A purely peer-to-peer version of electronic cash would allow online payments to be sent directly from one party to another without going through a financial institution. Bitcoin demonstrated that such a system is practical when combined with proof-of-work timestamping and public-key signatures. However, Bitcoin's SHA256d mining favors specialized hardware, and its ECDSA/Schnorr signatures are not designed to resist cryptanalytic attacks enabled by large-scale quantum computers.</p>
+<p><span class="abstract-note">Byze (BYZ)</span> is a Bitcoin Core–derived electronic cash system that preserves the UTXO model, block chain structure, and economic schedule of Bitcoin while replacing two foundational assumptions: <strong>RandomX</strong> proof-of-work for CPU-friendly mining, and <strong>mandatory dual post-quantum signatures</strong> (XMSS and SPHINCS+) for both transaction authorization and mainnet block attestation. Nodes reach consensus on the same ordered history of transactions without a trusted mint. The system is designed for verifiable, non-custodial participation from commodity hardware.</p>
+
+<hr>
+
+<h2 id="intro">1. Introduction</h2>
+<p>Commerce on the Internet has come to rely almost exclusively on financial institutions serving as trusted third parties to process electronic payments. While the system works well enough for most transactions, it still suffers from the inherent weaknesses of the trust-based model. Completely non-reversible transactions are not really possible, mediation costs increase transaction fees, and merchants cannot avoid requesting more information than they would otherwise need.</p>
+<p>Cryptographic proof, instead of trust, allows willing parties to transact directly. Bitcoin solved the double-spending problem with a peer-to-peer network that timestamps transactions by hashing them into an ongoing chain of proof-of-work–based records. Byze adopts that architecture wholesale—blocks, Merkle roots, UTXOs, halvings, and fee markets—while hardening the two primitives most exposed to long-term technological shift: <strong>work function</strong> and <strong>digital signatures</strong>.</p>
+<p>Byze is <strong>not Bitcoin</strong>. It uses distinct network magic bytes, ports, address prefixes, and genesis parameters. Coins on the Byze chain (BYZ) are not interchangeable with BTC. This document describes the Byze protocol as implemented in the reference client (<code>byzed</code>, <code>byze-qt</code>, <code>byze-cli</code>).</p>
+
+<h3>1.1 Design goals</h3>
+<ol>
+  <li><strong>Peer-to-peer electronic cash</strong> — Direct value transfer without custodial intermediaries.</li>
+  <li><strong>CPU-oriented mining</strong> — RandomX makes commodity processors the intended mining substrate, reducing ASIC centralization pressure relative to SHA256d.</li>
+  <li><strong>Post-quantum signature hygiene</strong> — Every spend and every mainnet block (after genesis) carries <strong>both</strong> an XMSS-class and a SPHINCS+-class signature over the same message digest, so a break in one family does not silently invalidate the security model.</li>
+  <li><strong>Bitcoin-familiar economics</strong> — 10-minute mean block interval, 210,000-block halving interval, ~21 million BYZ asymptotic supply cap, non-spendable genesis subsidy.</li>
+  <li><strong>Operational mainnet</strong> — The network launched with modern script rules (SegWit, Taproot infrastructure) active from height 1, but <strong>only quantum witness v1 outputs are valid for spending</strong>.</li>
+</ol>
+
+<hr>
+
+<h2 id="transactions">2. Transactions</h2>
+<p>Byze follows the Bitcoin transaction model. An <strong>electronic coin</strong> is defined as a chain of digital signatures. Each owner transfers the coin to the next by digitally signing a hash of the previous transaction and the public key of the next owner, and adding these to the end of the coin. A payee can verify the signatures to verify the chain of ownership.</p>
+
+<h3>2.1 UTXOs and witnesses</h3>
+<p>Transactions consume unspent transaction outputs (UTXOs) and create new outputs. Byze uses SegWit serialization (witness data is committed via the witness Merkle root in the block header). Unlike Bitcoin Taproot, which authorizes spends with a single 64-byte Schnorr signature, <strong>Byze quantum outputs require a fixed three-element witness stack</strong>:</p>
+
+<table>
+  <tr><th>Witness element</th><th>Size (bytes)</th><th>Role</th></tr>
+  <tr><td>XMSS signature</td><td><strong>2,500</strong></td><td>Post-quantum stateful hash-based signature (liboqs XMSS-SHA2_10_256)</td></tr>
+  <tr><td>SPHINCS+ signature</td><td><strong>7,856</strong></td><td>Stateless post-quantum signature (liboqs SPHINCS+-SHA2-128s-simple)</td></tr>
+  <tr><td>Dual public-key bundle</td><td><strong>100</strong></td><td>68-byte XMSS pubkey + 32-byte SPHINCS+ pubkey</td></tr>
+</table>
+
+<p>The <code>scriptPubKey</code> for a standard Byze output is a <strong>witness version 1 program</strong> (the same structural slot Bitcoin uses for Taproot):</p>
+<pre>OP_1 &lt;32-byte program&gt;</pre>
+<p>where:</p>
+<pre>program = SHA256(dual_public_key_bundle)</pre>
+<p>Both signatures must verify against the <strong>BIP341-style transaction sighash</strong> (<code>SignatureHashSchnorr</code> code path) of the input being spent. Consensus rejects ECDSA, Schnorr, and witness v0 spends for standard payment paths—only the quantum dual-signature witness shape is accepted in <code>VerifyScript</code>.</p>
+
+<h3>2.2 Addresses</h3>
+<p>Human-readable addresses use Bech32 with human-readable part <strong>byz</strong> (mainnet), e.g. <code>byz1…</code>. Legacy base58 pay-to-public-key-hash addresses use prefix <strong>H</strong>. These encodings are unique to Byze and prevent accidental cross-chain payment to Bitcoin addresses.</p>
+
+<h3>2.3 Wallet key hierarchy</h3>
+<p>The reference wallet derives quantum key material deterministically from the same BIP32 extended secret that backs Taproot descriptors. The 32-byte output program is <code>SHA256(dual_public_key_bundle)</code>, binding the on-chain program to the published public keys in the witness.</p>
+<p><strong>XMSS index discipline:</strong> XMSS is a stateful signature scheme—each one-time index must be used at most once. The wallet persists the current index in <code>wallet.dat</code>, reserves an index before signing, and advances it atomically after a successful sign. Reusing an index breaks only the XMSS leg (the SPHINCS+ leg remains valid), but consensus still requires both legs; operators must treat index management as a liveness requirement.</p>
+
+<hr>
+
+<h2 id="blocks">3. Timestamp Server and Blocks</h2>
+<p>The solution to double-spending is a <strong>timestamp server</strong> implemented as a distributed block chain. Each block contains a hash of the previous block header, forming a chain that becomes computationally expensive to rewrite as it grows.</p>
+
+<h3>3.1 Block structure</h3>
+<p>A Byze block consists of:</p>
+<ol>
+  <li><strong>Block header</strong> — nVersion, hashPrevBlock, hashMerkleRoot, nTime, nBits, nNonce (unchanged field layout from Bitcoin).</li>
+  <li><strong>Transaction list</strong> — Ordered transactions including exactly one coinbase.</li>
+  <li><strong>Quantum signature tail</strong> (mainnet, post-genesis) — Appended to the serialized block after transactions:</li>
+</ol>
+<pre>struct quantum_signature_data {
+    xmss_signature[2500];
+    sphincs_signature[7856];
+    dual_public_key[100];
+};</pre>
+<p>This tail is <strong>not</strong> part of the header hashed for proof-of-work; miners sign <code>CBlockHeader::GetHash()</code> after finding a valid RandomX nonce.</p>
+
+<h3>3.2 Merkle root and witness commitment</h3>
+<p>Transaction inclusion follows Bitcoin rules: duplicate txids forbidden, coinbase required, block weight limits enforced. Witness commitments remain in the coinbase per BIP141.</p>
+
+<h3>3.3 Compact block relay</h3>
+<p>BIP152 compact blocks omit the quantum tail by design. Peers that detect a missing tail on mainnet fall back to requesting the full block, ensuring quantum fields propagate correctly across the network.</p>
+
+<hr>
+
+<h2 id="pow">4. Proof-of-Work (RandomX)</h2>
+
+<h3>4.1 Motivation</h3>
+<p>Bitcoin's proof-of-work uses double SHA256 on the block header. This function is extremely cheap on ASICs, concentrating hashrate in specialized datacenters. <strong>RandomX</strong> is a proof-of-work algorithm optimized for general-purpose CPUs: it executes randomized programs in a virtual machine with memory-hard access patterns, making FPGA/ASIC advantage harder to sustain relative to modern x86/ARM cores.</p>
+<p>Byze replaces <code>SHA256(SHA256(header))</code> with:</p>
+<pre>block_pow_hash = RandomXHash(block_header)</pre>
+<p>A block is valid when <code>block_pow_hash &lt;= target(nBits)</code>, using the same compact <code>nBits</code> encoding and <code>powLimit</code> arithmetic as Bitcoin.</p>
+
+<h3>4.2 RandomX lifecycle</h3>
+<p>The reference node initializes a RandomX cache and dataset at startup. Validation uses a shared global context protected by a mutex. Mining uses <strong>per-thread virtual machines</strong> (<code>RandomXMiningContext</code>) so pool software and RPC <code>generatetoaddress</code> can search nonces in parallel without starving validation.</p>
+
+<h3>4.3 Difficulty adjustment</h3>
+<p>Byze retargets difficulty every <strong>6 blocks</strong> (one hour at the 10-minute target spacing), not Bitcoin's 2016-block window:</p>
+<table>
+  <tr><th>Parameter</th><th>Byze mainnet</th></tr>
+  <tr><td>Target spacing</td><td>600 s (10 min)</td></tr>
+  <tr><td>Retarget interval</td><td>3,600 s (1 h)</td></tr>
+  <tr><td>Blocks per retarget</td><td>6</td></tr>
+  <tr><td>Min/max timespan factor</td><td>¼ – 4× (same clamp as Bitcoin)</td></tr>
+</table>
+
+<h3>4.4 Soft launch (bootstrap window)</h3>
+<p>For the first <strong>10,000 blocks</strong> after genesis, mainnet holds difficulty at <code>powLimit</code> regardless of inter-block times. This <strong>soft launch</strong> allows early CPU miners to find blocks without an initially extreme hashrate requirement. After height 10,000, normal retargeting applies.</p>
+
+<h3>4.5 Genesis</h3>
+<p>Mainnet genesis (RandomX-mined):</p>
+<table>
+  <tr><th>Field</th><th>Value</th></tr>
+  <tr><td>Timestamp message</td><td>Byze (BYZ) genesis - RandomX PoW - 2026-04-27</td></tr>
+  <tr><td>Subsidy</td><td>50 BYZ (non-spendable, as in Bitcoin)</td></tr>
+  <tr><td>Block hash</td><td><code>00000a6ff06ac3c6549d30a1931c8ff1fc98be705c7802164…</code></td></tr>
+  <tr><td>Merkle root</td><td><code>946448a64c948d5a9c044306689cc47a4e1c12ee591f8871…</code></td></tr>
+</table>
+<p>The genesis block is <strong>exempt</strong> from the quantum block-signature requirement.</p>
+
+<hr>
+
+<h2 id="pq">5. Post-Quantum Signatures</h2>
+
+<h3>5.1 Threat model</h3>
+<p>Shor's algorithm breaks discrete-log and factoring-based public-key cryptography on a sufficiently large fault-tolerant quantum computer. While the timeline for such machines is uncertain, a blockchain intended to operate for decades must plan for <strong>Harvest Now, Decrypt Later</strong> attacks against long-lived UTXOs and for the eventual need to migrate signature schemes without a trusted coordinator.</p>
+<p>Byze addresses this at the protocol layer by requiring <strong>two independent post-quantum signature families</strong> on every spend and on every mainnet block.</p>
+
+<h3>5.2 XMSS (stateful hash-based signatures)</h3>
+<p><strong>XMSS</strong> (eXtended Merkle Signature Scheme, standardized as RFC 8391) is a stateful hash-based signature scheme. Security reduces to collision resistance of the chosen hash function rather than hardness of discrete logarithms. The trade-off is <strong>state</strong>: each key has a finite number of one-time slots (Byze defaults: tree height <strong>10 → 1,024</strong> signatures per key).</p>
+<p>Byze XMSS parameters (mainnet, implemented via liboqs <code>XMSS-SHA2_10_256</code>):</p>
+<table>
+  <tr><th>Parameter</th><th>Value</th></tr>
+  <tr><td>Tree height</td><td>10</td></tr>
+  <tr><td>Max signatures per key</td><td>1,024</td></tr>
+  <tr><td>Signature wire size</td><td><strong>2,500 bytes</strong></td></tr>
+  <tr><td>XMSS pubkey size</td><td><strong>68 bytes</strong> in the dual bundle</td></tr>
+  <tr><td>SPHINCS+ pubkey size</td><td><strong>32 bytes</strong> in the dual bundle</td></tr>
+  <tr><td>Dual bundle total</td><td><strong>100 bytes</strong> (68 + 32)</td></tr>
+</table>
+<p>The reference implementation uses liboqs <code>OQS_SIG_STFL_alg_xmss_sha256_h10</code> for signing and verification, with HKDF-based deterministic key derivation from wallet entropy (<code>byze/q/xmss_seed</code> label). Future releases may adopt alternate RFC 8391 parameter sets without changing the outer witness envelope layout.</p>
+
+<h3>5.3 SPHINCS+ (stateless hash-based signatures)</h3>
+<p><strong>SPHINCS+</strong> (standardized as FIPS 205 / SLH-DSA) provides stateless post-quantum signatures at the cost of larger signatures. Byze uses it as a <strong>second line of defense</strong>: wallets and miners must produce a valid SPHINCS+ signature over the same digest even if XMSS state management fails or XMSS is cryptanalyzed.</p>
+<p>Byze SPHINCS+ parameters (mainnet, implemented via liboqs <code>SPHINCS+-SHA2-128s-simple</code>):</p>
+<table>
+  <tr><th>Parameter</th><th>Value</th></tr>
+  <tr><td>Security level</td><td>1 (liboqs <code>sphincs_sha2_128s_simple</code>)</td></tr>
+  <tr><td>Signature wire size</td><td><strong>7,856 bytes</strong></td></tr>
+  <tr><td>SPHINCS+ pubkey size</td><td><strong>32 bytes</strong></td></tr>
+</table>
+<p>As with XMSS, key derivation uses HKDF from wallet entropy (<code>byze/q/sph_seed_a</code> label). The protocol slot is reserved for standards-aligned parameter upgrades.</p>
+
+<h3>5.4 Dual-signature rule</h3>
+<p>For <strong>transactions</strong>, both signatures must verify against the sighash and the dual public-key bundle must hash to the output program.</p>
+<p>For <strong>blocks</strong> (mainnet, height &gt;= 1):</p>
+<ol>
+  <li><code>xmss_signature</code>, <code>sphincs_signature</code>, and <code>dual_public_key</code> must be present with exact expected sizes.</li>
+  <li>Both signatures must verify over <code>CBlockHeader::GetHash()</code>.</li>
+  <li>Partial tails (only one signature present) are rejected.</li>
+</ol>
+<p>Blocks missing the tail on mainnet are invalid with consensus error <code>bad-quantum-sig-missing</code>. Invalid cryptography yields <code>bad-quantum-sig</code>.</p>
+<p>Test networks may omit block tails unless <code>-enforcequantumblocksigs</code> is set; if any quantum field is present, all fields must be valid.</p>
+
+<h3>5.5 Why dual schemes?</h3>
+<table>
+  <tr><th>Concern</th><th>Mitigation</th></tr>
+  <tr><td>Quantum break of ECDSA/Schnorr</td><td>Neither is used for Byze payments</td></tr>
+  <tr><td>XMSS state loss / index reuse</td><td>Operator tooling + SPHINCS+ leg still required; wallet persists index in DB</td></tr>
+  <tr><td>Break of one PQ family</td><td>Second family still required at consensus</td></tr>
+  <tr><td>Large signatures</td><td>Acceptable trade-off for base-layer security; witness discount applies</td></tr>
+</table>
+
+<hr>
+
+<h2 id="network">6. Network</h2>
+
+<h3>6.1 Peer discovery and isolation</h3>
+<p>Byze nodes speak a Bitcoin-derived P2P protocol with distinct <strong>message start bytes</strong> <code>0x48 0x45 0x52 0x4D</code> ("HERM") so clients never accidentally connect to Bitcoin mainnet. Default mainnet port: <strong>8888</strong>.</p>
+
+<h3>6.2 Transaction relay policy</h3>
+<p>Standard transaction policy (<code>IsStandard</code>) accepts only:</p>
+<ul>
+  <li><code>witness_v1_taproot</code> quantum outputs, and</li>
+  <li><code>OP_RETURN</code> data carriers within size limits.</li>
+</ul>
+<p>Bare multisig, P2PKH, P2SH-wrapped legacy scripts, and witness v0 outputs are non-standard and not relayed by default nodes. This nudges the ecosystem toward quantum outputs while keeping consensus rules explicit in the script interpreter.</p>
+
+<h3>6.3 Mining integration</h3>
+<p><strong>Solo mining:</strong> RPC <code>startmining</code>, <code>generatetoaddress</code>, and the in-process controller search RandomX nonces, then attach quantum block signatures automatically before submission.</p>
+<p><strong>Pool mining:</strong> External miners using <code>getblocktemplate</code> / <code>submitblock</code> must ensure submitted blocks include the quantum tail. Pool operators typically call the <code>signpoolblock</code> RPC on a node holding the pool's quantum block-signing keys to attach XMSS + SPHINCS+ signatures after a valid RandomX nonce is found. Stratum reference deployments use <code>byze-miner</code> against pools (e.g. <code>pool.byze.org:3333</code>).</p>
+<p>See <strong>Appendix D</strong> for the full pool and block-submission protocol.</p>
+
+<h3>6.4 Simplified Payment Verification (SPV)</h3>
+<p>Light clients can follow the longest proof-of-work chain by downloading block headers and Merkle branches, as in Bitcoin. <strong>Additional caveat:</strong> SPV clients that do not download full blocks cannot verify quantum block signatures in the tail; they rely on full nodes having rejected invalid tails. For highest assurance, run a full validating node (<code>byzed</code>).</p>
+
+<hr>
+
+<h2 id="incentive">7. Incentive and Monetary Policy</h2>
+<p>Byze inherits Bitcoin's issuance schedule:</p>
+<table>
+  <tr><th>Rule</th><th>Value</th></tr>
+  <tr><td>Initial subsidy</td><td>50 BYZ per block</td></tr>
+  <tr><td>Halving interval</td><td>210,000 blocks (~4 years at 10 min/block)</td></tr>
+  <tr><td>Minimum relay fee</td><td>Node policy (default Bitcoin-derived settings)</td></tr>
+  <tr><td>Total supply cap</td><td>Approaches <strong>21,000,000 BYZ</strong></td></tr>
+  <tr><td>Spendable supply</td><td>~20,999,950 BYZ (genesis coinbase unspendable)</td></tr>
+</table>
+<p>Fees: transaction inputs minus outputs, same as Bitcoin. As subsidies halve toward zero, incentive shifts to fees and block space markets.</p>
+<p>The <strong>shorter difficulty window</strong> (6 blocks vs 2016) makes Byze more responsive to hashrate changes but increases variance in retarget noise during the first hours of each window. This is an intentional deviation for a young CPU-mined network.</p>
+
+<hr>
+
+<h2 id="diskspace">8. Reclaiming Disk Space</h2>
+<p>Once a coin's latest spend is buried under sufficient work, the spend can be pruned from full-node storage if Merkle commitments allow—identical considerations as Bitcoin. Byze's larger witnesses (<strong>~10 KB quantum material per input</strong> vs ~64 bytes Schnorr) increase bandwidth and storage growth relative to Bitcoin Taproot; pruned nodes and <code>assumeUTXO</code> snapshots remain supported in the codebase for operational scaling.</p>
+
+<hr>
+
+<h2 id="splitting">9. Splitting and Combining Value</h2>
+<p>Transactions may contain multiple inputs and outputs. Typical quantum spends consume one or more UTXOs and produce change outputs using the same witness v1 quantum program format. Coin selection, feerate estimation, and RBF policies follow Bitcoin Core wallet logic adapted for larger witness weight.</p>
+<p><strong>Weight note:</strong> Each quantum input contributes roughly <strong>10 KB</strong> of witness data (2,500 B XMSS + 7,856 B SPHINCS+ + 100 B dual pubkey). Users should expect higher minimum feerates for small payments than on Bitcoin Taproot.</p>
+
+<hr>
+
+<h2 id="privacy">10. Privacy</h2>
+<p>Byze inherits Bitcoin's pseudonymous model: public keys (here, hashed dual bundles) are not inherently linked to real-world identity, but the graph of transactions is public. Quantum outputs reuse Taproot's single 32-byte program appearance on-chain, but witnesses are substantially larger (~10 KB) and more distinctive in mempool traffic analysis.</p>
+<p>Recommended practices:</p>
+<ul>
+  <li>Use fresh receive indices for privacy-sensitive receipts.</li>
+  <li>Do not reuse XMSS indices across wallets.</li>
+  <li>Run your own node; third-party explorers see the same public chain data.</li>
+</ul>
+<p>Byze does not implement protocol-layer confidential transactions.</p>
+
+<hr>
+
+<h2 id="security">11. Security Analysis</h2>
+
+<h3>11.1 Security properties</h3>
+<table>
+  <tr><th>Property</th><th>Definition</th><th>Mechanism</th></tr>
+  <tr><td><strong>Ledger integrity</strong></td><td>Only valid spends of existing UTXOs enter the canonical chain</td><td>UTXO model + script verification</td></tr>
+  <tr><td><strong>Chain ordering</strong></td><td>History cannot be rewritten without majority work</td><td>RandomX cumulative proof-of-work</td></tr>
+  <tr><td><strong>Authorization binding</strong></td><td>Only holders of quantum private state can move value</td><td>Dual XMSS + SPHINCS+ witnesses</td></tr>
+  <tr><td><strong>Block authenticity</strong></td><td>Mainnet blocks commit to a known signing identity</td><td>Quantum tail over header hash</td></tr>
+  <tr><td><strong>Network partition safety</strong></td><td>Conflicting tips resolve to the most-work chain</td><td>Longest (most-work) chain rule</td></tr>
+</table>
+
+<h3>11.2 Threat model</h3>
+<p>We consider an adversary that can:</p>
+<ul>
+  <li>Control a fraction (η) of total RandomX hashrate.</li>
+  <li>Monitor and censor network traffic (delay, reorder, drop messages).</li>
+  <li>Run a large-scale quantum computer capable of Shor's algorithm on ECDLP—but <strong>not</strong> capable of breaking SHA256/SHA3 collision resistance at 256-bit security (standard conservative assumption for hash-based PQ schemes).</li>
+  <li>Compromise individual users' wallets or pool operators' signing nodes (out of scope for base-layer consensus; mitigated operationally).</li>
+</ul>
+<p>We do <strong>not</strong> assume trusted third parties, hardware security modules, or honest majority of stake—only work, as in Bitcoin.</p>
+
+<h3>11.3 Proof-of-work security</h3>
+<p>Let honest hashrate be ((1-η)H) and adversarial hashrate be (ηH). The probability that an attacker with (η &lt; 0.5) catches up from (z) blocks behind follows the same birthday/random-walk analysis as in Bitcoin's original paper: as (z) increases, success probability drops exponentially.</p>
+<p><strong>RandomX-specific considerations:</strong></p>
+<ul>
+  <li><strong>Hardware parity:</strong> RandomX is designed so CPU implementations are competitive; an ASIC advantage may exist but is expected to be smaller than for SHA256d. This improves participation fairness but does not remove the 51% threshold.</li>
+  <li><strong>Soft launch:</strong> During heights (1…10,000), difficulty is fixed at <code>powLimit</code>, temporarily lowering the work cost of reorgs. Applications requiring strong finality during bootstrap should wait for sufficient depth and passage of the soft-launch window.</li>
+  <li><strong>Fast retarget:</strong> Six-block windows react quickly to hashrate influx; operators should expect difficulty swings during the network's early life.</li>
+</ul>
+<p><strong>Proposition (51% reorg):</strong> An adversary with (η &gt; 0.5) can, given sufficient time, produce a longer valid chain and reverse confirmations. No proof-of-work chain eliminates this; Byze additionally requires valid quantum block tails on the fork, so the attacker must also possess the pool/node block-signing keys—or mine solo with a wallet that signs blocks.</p>
+
+<h3>11.4 Post-quantum signature security</h3>
+<p><strong>Transaction forgery.</strong> To forge a spend of output program (P), an adversary must produce witness (σ_x, σ_s, K) such that:</p>
+<ol>
+  <li>(SHA256(K) = P)</li>
+  <li>(VerifyXMSS(sighash, σ_x, K_x) = true)</li>
+  <li>(VerifySPHINCS+(sighash, σ_s, K_s) = true)</li>
+</ol>
+<p>where ((K_x, K_s)) partition the <strong>100-byte bundle</strong> (K) into the 68-byte XMSS pubkey and 32-byte SPHINCS+ pubkey.</p>
+<p>Under <strong>independence</strong> of the two verification functions and <strong>collision resistance</strong> of the hash functions used internally, forging without the private state requires breaking at least one scheme. A break of ECDSA/Schnorr alone is insufficient because those key types are not consensus-valid for payments.</p>
+
+<h3>11.5 Mempool and relay attacks</h3>
+<p>Because quantum witnesses are large (~10 KB per input), denial-of-service via oversized transactions is mitigated by standard weight limits (<code>MAX_BLOCK_WEIGHT</code>, <code>standard</code> policy). Non-quantum outputs are non-standard and not relayed, reducing legacy malleability vectors but concentrating traffic shape on quantum witnesses.</p>
+
+<h3>11.6 Operational risks</h3>
+<table>
+  <tr><th>Risk</th><th>Consequence</th><th>Mitigation</th></tr>
+  <tr><td>XMSS index reuse</td><td>Transaction rejected</td><td>Wallet DB persistence, pending-index recovery</td></tr>
+  <tr><td>Loss of wallet.dat</td><td>Loss of funds</td><td>Backups, optional BIP39 recovery phrase in Qt wallet</td></tr>
+  <tr><td>Large witnesses</td><td>Higher fees</td><td>Batch payments, appropriate feerates</td></tr>
+  <tr><td>Pool omitting block tail</td><td>Block rejected</td><td>Call <code>signpoolblock</code> before <code>submitblock</code></td></tr>
+  <tr><td>Compromised pool signer</td><td>Attacker can sign invalid blocks with valid PoW</td><td>Key rotation, multi-party block signing (future)</td></tr>
+  <tr><td>SPV-only clients</td><td>Cannot verify quantum block tails</td><td>Run full node for full assurance</td></tr>
+</table>
+
+<h3>11.7 Limitations and open problems</h3>
+<ul>
+  <li>Block signing keys are node-local; decentralized block-signer rotation is not yet specified.</li>
+  <li>Quantum witness size increases layer-1 bandwidth costs versus Bitcoin Taproot (~10 KB per input vs ~64 bytes).</li>
+  <li>RandomX performance on non-x86 architectures varies; pool software should benchmark per platform.</li>
+  <li>Migration path to standards-track XMSS (RFC 8391) and SPHINCS+ (FIPS 205) byte layouts is planned for a future protocol version.</li>
+</ul>
+
+<hr>
+
+<h2 id="comparison">12. Comparison with Bitcoin</h2>
+<table>
+  <tr><th>Aspect</th><th>Bitcoin</th><th>Byze</th></tr>
+  <tr><td>PoW hash</td><td>SHA256d</td><td>RandomX</td></tr>
+  <tr><td>Payment signatures</td><td>ECDSA / Schnorr</td><td>XMSS + SPHINCS+ (dual, mandatory)</td></tr>
+  <tr><td>Block signatures</td><td>None (header only)</td><td>Dual PQ tail on mainnet</td></tr>
+  <tr><td>Standard outputs</td><td>P2WPKH, P2TR, etc.</td><td>Quantum witness v1 only (policy)</td></tr>
+  <tr><td>Retarget period</td><td>2016 blocks (~2 weeks)</td><td>6 blocks (~1 hour)</td></tr>
+  <tr><td>Soft launch</td><td>None</td><td>10,000 blocks min difficulty</td></tr>
+  <tr><td>Witness size (per input)</td><td>~64 bytes (Taproot)</td><td>~10 KB (2500 + 7856 + 100)</td></tr>
+  <tr><td>Network magic</td><td>0xF9 0xBE 0xB4 0xD9</td><td>0x48 0x45 0x52 0x4D</td></tr>
+  <tr><td>Default P2P port</td><td>8333</td><td>8888</td></tr>
+  <tr><td>Bech32 HRP</td><td>bc / tb</td><td>byz</td></tr>
+  <tr><td>Ticker</td><td>BTC</td><td>BYZ</td></tr>
+</table>
+<p>Byze is a <strong>hard fork in spirit</strong>—a new genesis chain—not a live Bitcoin upgrade path.</p>
+
+<hr>
+
+<h2 id="roadmap">13. Roadmap and Evolution</h2>
+<p>The live mainnet implements RandomX PoW, quantum transaction witnesses, and quantum block tails. Near-term engineering focuses on:</p>
+<ul>
+  <li><strong>Distribution</strong> — Signed desktop bundles (Linux, Windows, macOS), reproducible builds.</li>
+  <li><strong>Standards alignment</strong> — Migrating internal XMSS/SPHINCS+ engines toward RFC 8391 / FIPS 205 byte layouts without breaking the dual-witness envelope.</li>
+  <li><strong>Ecosystem</strong> — Explorer, browser wallet, public pool, and reference CPU miner (<code>byze-miner</code>).</li>
+  <li><strong>Hardware workflows</strong> — Integration with external signers and backup tooling as the network matures.</li>
+</ul>
+<p>Protocol upgrades follow Bitcoin-style soft-fork discipline where applicable; witness version 1 quantum layout occupies the Taproot upgrade lane, leaving higher witness versions available for future extensions.</p>
+
+<hr>
+
+<h2 id="conclusion">14. Conclusion</h2>
+<p>Byze demonstrates that the Bitcoin architecture—UTXO ledger, proof-of-work ordering, Merkle commitments, and halving economics—can be extended to address two long-horizon threats: <strong>mining hardware centralization</strong> and <strong>quantum cryptanalysis</strong>. By substituting RandomX for SHA256d and requiring dual post-quantum signatures at both the transaction and block layers, Byze offers a path toward CPU-accessible mining and signature agility without abandoning the peer-to-peer cash model.</p>
+<p>We proposed a system for electronic transactions without relying on trusted third parties or pre-quantum signature assumptions at the spending layer. Nodes vote with their CPU power on the RandomX chain, rejecting invalid work and invalid quantum proofs. Rules and incentives are enforced by consensus code open to public audit.</p>
+
+<hr>
+
+<h2 id="references">References</h2>
+<ol>
+  <li>S. Nakamoto, Bitcoin: A Peer-to-Peer Electronic Cash System, 2008. <a href="https://bitcoin.org/bitcoin.pdf">https://bitcoin.org/bitcoin.pdf</a></li>
+  <li>tevador et al., RandomX: A CPU-friendly proof of work, 2019.</li>
+  <li>B. Buchmann et al., XMSS: Extended Hash-Based Signatures (RFC 8391).</li>
+  <li>J. Bernstein et al., SPHINCS+ (NIST PQC; FIPS 205 / SLH-DSA).</li>
+  <li>BIP141 — Segregated Witness; BIP340–342 — Schnorr/Taproot (Byze reuses sighash machinery).</li>
+  <li>Byze source: <a href="https://github.com/powhermes/byze">https://github.com/powhermes/byze</a></li>
+  <li>Network hub: <a href="https://byze.org">https://byze.org</a></li>
+  <li>Open Quantum Safe (liboqs): <a href="https://openquantumsafe.org">https://openquantumsafe.org</a></li>
+</ol>
+
+<hr>
+
+<h2 id="appendix-a">Appendix A — Wire and consensus constants</h2>
+<p>Source of truth: <code>src/crypto/quantum_safe_config.h</code></p>
+<pre>BYZE_XMSS_SIGNATURE_SIZE     = 2500   // OQS_SIG_STFL_alg_xmss_sha256_h10_length_signature
+BYZE_SPHINCS_SIGNATURE_SIZE  = 7856   // OQS_SIG_sphincs_sha2_128s_simple_length_signature
+BYZE_XMSS_PUBKEY_SIZE        =   68   // OQS_SIG_STFL_alg_xmss_sha256_h10_length_pk
+BYZE_SPHINCS_PUBKEY_SIZE     =   32   // OQS_SIG_sphincs_sha2_128s_simple_length_public_key
+BYZE_DUAL_PUBKEY_BUNDLE_SIZE =  100   // XMSS pubkey + SPHINCS+ pubkey
+BYZE_DEFAULT_XMSS_TREE_HEIGHT =   10
+BYZE_DEFAULT_SPHINCS_LEVEL   =    1   // sphincs_sha2_128s_simple
+WITNESS_V1_TAPROOT_SIZE      =   32
+SOFT_LAUNCH_HEIGHT           = 10000
+SUBSIDY_HALVING_INTERVAL     = 210000
+POW_TARGET_SPACING           =  600 seconds
+POW_TARGET_TIMESPAN          = 3600 seconds</pre>
+
+<hr>
+
+<h2 id="appendix-b">Appendix B — Example quantum output</h2>
+<p><strong>scriptPubKey:</strong> <code>OP_1 0x&lt;32-byte SHA256(dual_public_key_bundle)&gt;</code></p>
+<p><strong>scriptWitness.stack:</strong></p>
+<pre>[0] xmss_signature    (2500 bytes)
+[1] sphincs_signature  (7856 bytes)
+[2] dual_public_key   ( 100 bytes)
+    ├── xmss_pubkey   [0:68]   (68 bytes)
+    └── sphincs_pubkey[68:100] (32 bytes)</pre>
+<p><strong>Verification (consensus):</strong></p>
+<ol>
+  <li>SHA256(stack[2]) == program in scriptPubKey</li>
+  <li>VerifyXMSS(sighash, stack[0], pubkey_xmss) succeeds</li>
+  <li>VerifySPHINCS+(sighash, stack[1], pubkey_sphincs) succeeds</li>
+</ol>
+<p>where <code>pubkey_xmss</code> = stack[2][0:68] and <code>pubkey_sphincs</code> = stack[2][68:100].</p>
+
+<hr>
+
+<h2 id="appendix-c">Appendix C — Block serialization tail (mainnet)</h2>
+<p>Full block serialization order:</p>
+<pre>CBlockHeader
+var-int tx count
+transactions[]
+quantum_signature_data   // required on mainnet except genesis
+    xmss_signature    [2500 bytes]
+    sphincs_signature [7856 bytes]
+    dual_public_key   [ 100 bytes]</pre>
+<p>Block proof-of-work is validated on the header alone; quantum signatures bind the miner's keys to that header hash after PoW is found.</p>
+
+<hr>
+
+<h2 id="appendix-d">Appendix D — Mining and pool protocol</h2>
+<p>This appendix specifies how miners, pools, and node operators interact with Byze mainnet. It is descriptive of the reference implementation (byzed v0.1.0).</p>
+
+<h3>D.1 Roles</h3>
+<table>
+  <tr><th>Role</th><th>Software</th><th>Responsibility</th></tr>
+  <tr><td><strong>Full node</strong></td><td>byzed</td><td>Validates chain, serves GBT, signs blocks (signpoolblock), submits blocks</td></tr>
+  <tr><td><strong>Solo miner</strong></td><td>byzed + RPC or Qt</td><td>Finds RandomX nonce, auto-signs quantum tail, broadcasts block</td></tr>
+  <tr><td><strong>Pool server</strong></td><td>Custom + byzed</td><td>Issues work units, aggregates shares, builds candidate blocks</td></tr>
+  <tr><td><strong>Pool miner</strong></td><td>byze-miner</td><td>Computes RandomX hashes for pool-assigned header/nonces</td></tr>
+  <tr><td><strong>Payout wallet</strong></td><td>Any quantum wallet</td><td>Receives coinbase to a byz1… address</td></tr>
+</table>
+
+<h3>D.2 Stratum mining (recommended for pool miners)</h3>
+<p>The public reference pool listens on <strong>pool.byze.org:3333</strong> (Stratum). Miners run the standalone RandomX client:</p>
+<pre>byze-miner/build/byze-miner \
+  --pool pool.byze.org:3333 \
+  --wallet byz1YOUR_PAYOUT_ADDRESS \
+  --worker rig01 \
+  --threads 8</pre>
+
+<h3>D.3 Solo mining via RPC</h3>
+<p>A node with a loaded wallet and quantum block-signing keys can mine in-process:</p>
+<pre>byze-cli startmining "byz1YOUR_ADDRESS" 8</pre>
+<p>Or generate a fixed number of blocks (functional tests, regtest):</p>
+<pre>byze-cli generatetoaddress 1 "byz1YOUR_ADDRESS"</pre>
+<p>The node searches RandomX nonces with per-thread VMs, attaches the quantum tail via <code>MaybeSignBlockQuantum</code>, and submits the block to the local chain.</p>
+
+<h3>D.4 Pool block pipeline (GBT + sign + submit)</h3>
+<pre>Pool controller          byzed (full node)
+     |    getblocktemplate    |
+     | ----------------------&gt;|
+     | &lt;----------------------| template + jobs
+     |
+byze-miner workers ---&gt; Pool validates RandomX shares
+                              |
+                    winning header+nonce
+                              v
+                    signpoolblock (byze-cli)
+                              |
+                    hex + quantum tail
+                              v
+                         submitblock</pre>
+<p><strong>Step 1 — Template:</strong> <code>getblocktemplate</code> with <code>{"rules":["segwit"]}</code>.</p>
+<p><strong>Step 2 — PoW search:</strong> Miners vary nNonce until <code>RandomXHash(header) &lt;= target(bits)</code>.</p>
+<p><strong>Step 3 — Sign:</strong> Call <code>byze-cli signpoolblock "&lt;hex&gt;"</code>. The node attaches <code>xmss_signature</code>, <code>sphincs_signature</code>, and <code>dual_public_key</code> over <code>CBlockHeader::GetHash()</code>.</p>
+<p><strong>Step 4 — Submit:</strong> <code>byze-cli submitblock "&lt;hex from signpoolblock&gt;"</code>. Blocks missing the quantum tail on mainnet are rejected with <code>bad-quantum-sig-missing</code>.</p>
+
+<h3>D.5 Coinbase and payouts</h3>
+<p>Coinbase value equals subsidy at height (h) plus fees: V_coinbase = GetBlockSubsidy(h) + Σfees. Use a quantum <code>byz1…</code> payout address so rewards are spendable with standard wallets.</p>
+
+<h3>D.6 Checklist for pool operators</h3>
+<ol>
+  <li>Run a synced mainnet byzed with <code>-txindex</code> if your pool software requires it.</li>
+  <li>Ensure the node wallet holds quantum block-signing keys (solo mining once or import pool signer material).</li>
+  <li>After any valid PoW, always call <strong>signpoolblock</strong> before <strong>submitblock</strong> on mainnet.</li>
+  <li>Monitor <code>quantum_xmss_index</code> via wallet RPC—block signing consumes XMSS state.</li>
+  <li>Backup <code>wallet.dat</code> for the signing wallet; loss equals inability to produce valid blocks.</li>
+  <li>Set firewall rules: RPC only on localhost; expose Stratum port publicly.</li>
+</ol>
+
+<hr>
+<p><em>This document describes the Byze protocol as of release v0.1.1. Implementations should treat the reference source code (<a href="https://github.com/powhermes/byze">powhermes/byze</a>) and consensus tests as authoritative if any discrepancy arises.</em></p>
+
+</body>
+</html>
