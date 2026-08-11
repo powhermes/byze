@@ -414,6 +414,18 @@ if(BUILD_UTIL)
       bitcoin_util
       univalue
   )
+
+  # Standalone XMSS-exhaustion investigation harness (not shipped; devtools only).
+  add_executable(xmss-burn-test ../contrib/devtools/xmss-burn-test.cpp)
+  target_link_libraries(xmss-burn-test
+    PRIVATE
+      core_interface
+      bitcoin_consensus
+      bitcoin_common
+      bitcoin_crypto
+      bitcoin_util
+      univalue
+  )
 endif()
 
 

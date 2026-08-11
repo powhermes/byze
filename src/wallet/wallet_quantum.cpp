@@ -274,6 +274,29 @@ bool CWallet::IsQuantumSolvable(const CScript& script) const
     return IsQuantumMine(script);
 }
 
+std::optional<uint32_t> CWallet::GetQuantumSignaturesRemaining(const CScript& script) const
+{
+    AssertLockHeld(cs_wallet);
+    int witnessversion{-1};
+    std::vector<unsigned char> witnessprogram;
+    if (!script.IsWitnessProgram(witnessversion, witnessprogram) || witnessversion != 1 ||
+        witnessprogram.size() != WITNESS_V1_TAPROOT_SIZE) {
+        return std::nullopt;
+    }
+    const std::optional<uint32_t> receive_index = FindReceiveIndexForQuantumProgram(witnessprogram);
+    if (!receive_index) return std::nullopt;
+
+    CWallet* const pw = const_cast<CWallet*>(this);
+    crypto::quantum_safe_manager mgr;
+    if (*receive_index == 0 && m_quantum_manager &&
+        m_quantum_program_bytes.has_value() &&
+        std::memcmp(witnessprogram.data(), m_quantum_program_bytes->data(), 32) == 0) {
+        return m_quantum_manager->get_xmss_remaining_signatures();
+    }
+    if (!pw->LoadQuantumManagerForReceiveIndex(*receive_index, mgr)) return std::nullopt;
+    return mgr.get_xmss_remaining_signatures();
+}
+
 DBErrors CWallet::ApplyQuantumStateFromPackedBlob(const std::vector<unsigned char>& raw)
 {
     AssertLockHeld(cs_wallet);
@@ -470,11 +493,14 @@ bool CWallet::IsQuantumMine(const CScript& script) const
         witnessprogram.size() != WITNESS_V1_TAPROOT_SIZE) {
         return false;
     }
-    if (FindReceiveIndexForQuantumProgram(witnessprogram)) {
+    if (const auto idx = FindReceiveIndexForQuantumProgram(witnessprogram)) {
         return true;
     }
-    if (!m_quantum_program_bytes.has_value()) return false;
-    return std::memcmp(witnessprogram.data(), m_quantum_program_bytes->data(), 32) == 0;
+    if (!m_quantum_program_bytes.has_value()) {
+        return false;
+    }
+    const bool matches_index0 = std::memcmp(witnessprogram.data(), m_quantum_program_bytes->data(), 32) == 0;
+    return matches_index0;
 }
 
 std::optional<CTxDestination> CWallet::GetQuantumTaprootAtIndex(uint32_t index) const

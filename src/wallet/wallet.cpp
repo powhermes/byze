@@ -2359,7 +2359,10 @@ std::optional<PSBTError> CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bo
             } else if (input.non_witness_utxo && txin.prevout.n < input.non_witness_utxo->vout.size()) {
                 prev_txout = &input.non_witness_utxo->vout.at(txin.prevout.n);
             }
-            if (!prev_txout || !IsQuantumMine(prev_txout->scriptPubKey)) {
+            if (!prev_txout) {
+                continue;
+            }
+            if (!IsQuantumMine(prev_txout->scriptPubKey)) {
                 continue;
             }
             const PSBTError qerr = SignPSBTInput(quantum_provider, psbtx, static_cast<int>(i), &txdata, sighash_type, nullptr, finalize);
