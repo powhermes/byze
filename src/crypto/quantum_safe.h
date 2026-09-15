@@ -185,6 +185,7 @@ namespace crypto
     std::string get_dual_algorithm_info() const;
     std::optional<uint32_t> get_xmss_index() const;
     bool set_xmss_index(uint32_t index);
+    std::optional<uint32_t> get_xmss_remaining_signatures() const;
 
   private:
     std::unique_ptr<xmss_private_key> m_xmss_private;

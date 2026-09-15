@@ -749,6 +749,8 @@ public:
     bool EnsureQuantumIndexStateForReceiveIndex(uint32_t receive_index) override EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: backfill quantumindex records for all used external descriptor pool indices. */
     void RepairQuantumReceiveIndexStates() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: XMSS one-time-signatures left for this quantum scriptPubKey's receive index, if known. */
+    std::optional<uint32_t> GetQuantumSignaturesRemaining(const CScript& script) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     SigningResult SignMessage(const std::string& message, const PKHash& pkhash, std::string& str_sig) const;
 

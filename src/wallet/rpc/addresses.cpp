@@ -497,6 +497,10 @@ RPCHelpMan getaddressinfo()
     }
     ret.pushKV("solvable", solvable);
 
+    if (const auto remaining = pwallet->GetQuantumSignaturesRemaining(scriptPubKey)) {
+        ret.pushKV("quantum_sigs_remaining", static_cast<uint64_t>(*remaining));
+    }
+
     const auto& spk_mans = pwallet->GetScriptPubKeyMans(scriptPubKey);
     // In most cases there is only one matching ScriptPubKey manager and we can't resolve ambiguity in a better way
     ScriptPubKeyMan* spk_man{nullptr};

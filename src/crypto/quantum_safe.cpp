@@ -14,6 +14,7 @@
 #include <oqs/oqs.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <mutex>
@@ -240,6 +241,23 @@ static OqsInit g_oqs_init;
     OQS_SIG_STFL_SECRET_KEY_SET_store_cb(sk, xmss_secure_store,
         &const_cast<xmss_private_key*>(this)->m_secret_key);
 
+    // liboqs' OQS_SIG_STFL_sign() does not itself refuse once the key's one-time-
+    // signature budget is exhausted: it reports OQS_SUCCESS but the returned
+    // signature is cryptographically invalid (fails verification). Refuse
+    // explicitly instead of handing back a signature-shaped value that a caller
+    // could mistake for real -- this is the root cause of a Aug 2026 payout
+    // outage, where an already-exhausted key kept "succeeding" here and the
+    // failure only surfaced later as an unrelated, confusing RPC error. (Note:
+    // xmss_signature's default ctor zero-fills to SIGNATURE_SIZE, so this refusal
+    // alone isn't distinguishable by callers inspecting size -- see the real fix
+    // in quantum_safe_manager::sign(), which returns a genuinely empty vector.)
+    unsigned long long remain = 0;
+    if (!scheme->sigs_remaining || scheme->sigs_remaining(&remain, sk) != OQS_SUCCESS || remain == 0) {
+      LogError("xmss_private_key::sign: key is exhausted (0 one-time signatures remaining); refusing to sign\n");
+      OQS_SIG_STFL_free(scheme);
+      return sig;
+    }
+
     std::vector<uint8_t> sig_bytes(SIGNATURE_SIZE, 0);
     size_t sig_len = 0;
     const auto msg = MessageBytes(message);
@@ -463,7 +481,21 @@ static OqsInit g_oqs_init;
 
   std::vector<uint8_t> quantum_safe_manager::sign(const uint256& message, quantum_algorithm algo) const
   {
-    if (algo == quantum_algorithm::XMSS && m_xmss_private) return m_xmss_private->sign(message).save();
+    if (algo == quantum_algorithm::XMSS && m_xmss_private) {
+      // xmss_signature's default ctor zero-fills to SIGNATURE_SIZE, so a caller
+      // can't tell "refused, exhausted key" apart from a real signature by
+      // inspecting .save()'s length alone -- check remaining budget explicitly
+      // here and return a genuinely empty vector so downstream size checks
+      // (e.g. CWallet::SignQuantumTransactionSighash) correctly treat this as
+      // "signing failed" rather than silently proceeding with a zero-filled
+      // signature-shaped value.
+      const auto remaining = m_xmss_private->get_remaining_signatures();
+      if (remaining == 0) {
+        LogError("quantum_safe_manager::sign: XMSS key exhausted (0 signatures remaining)\n");
+        return {};
+      }
+      return m_xmss_private->sign(message).save();
+    }
     if (algo == quantum_algorithm::SPHINCS_PLUS && m_sphincs_private) return m_sphincs_private->sign(message).save();
     return {};
   }
@@ -730,6 +762,12 @@ static OqsInit g_oqs_init;
   {
     if (!m_xmss_private) return std::nullopt;
     return m_xmss_private->get_index();
+  }
+
+  std::optional<uint32_t> quantum_safe_manager::get_xmss_remaining_signatures() const
+  {
+    if (!m_xmss_private) return std::nullopt;
+    return m_xmss_private->get_remaining_signatures();
   }
 
   bool quantum_safe_manager::set_xmss_index(uint32_t index)
