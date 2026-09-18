@@ -11,7 +11,9 @@ function(add_liboqs)
     FetchContent_Declare(
       liboqs
       GIT_REPOSITORY https://github.com/open-quantum-safe/liboqs.git
-      GIT_TAG        0.14.0
+      # Tag 0.14.0. Pinned to the commit SHA rather than the tag so a moved or
+      # re-pushed tag cannot silently change the consensus crypto being built.
+      GIT_TAG        94b421ebb82405c843dba4e9aa521a56ee5a333d
       GIT_SHALLOW    TRUE
     )
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)

@@ -815,7 +815,10 @@ static RPCHelpMan signpoolblock()
             if (!DecodeHexBlk(block, request.params[0].get_str())) {
                 throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block decode failed");
             }
-            if (!CheckProofOfWork(block.GetHash(), block.nBits, Params().GetConsensus())) {
+            // CBlockHeader::GetHash() runs a full RandomX evaluation under the
+            // global VM mutex; compute it once rather than per use.
+            const uint256 pow_hash{block.GetHash()};
+            if (!CheckProofOfWork(pow_hash, block.nBits, Params().GetConsensus())) {
                 throw JSONRPCError(RPC_VERIFY_ERROR, "Block proof-of-work is invalid");
             }
             bool quantum_signed{false};
@@ -826,7 +829,7 @@ static RPCHelpMan signpoolblock()
             block_ser << TX_WITH_WITNESS(block);
             UniValue ret(UniValue::VOBJ);
             ret.pushKV("hex", HexStr(block_ser));
-            ret.pushKV("hash", block.GetHash().GetHex());
+            ret.pushKV("hash", pow_hash.GetHex());
             ret.pushKV("quantum_signed", quantum_signed);
             return ret;
         },
