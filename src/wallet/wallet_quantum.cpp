@@ -142,16 +142,19 @@ static bool RecoverPendingXmssDb(WalletBatch& batch, crypto::quantum_safe_manage
 }
 
 // RAII guard for the wallet-wide QUANTUM_PENDING recovery record written by
-// SignQuantumTransactionSighash before it calls XMSS sign. That record exists so a process
-// crash mid-sign can still resume the index bump on next load, via RecoverPendingXmssDb above.
-// xmss_private_key::set_index() is not implemented for the "leftover pending index is ahead of
-// every key's own current index" case RecoverPendingXmssDb hits after a *refused* sign (e.g. an
-// exhausted key) -- RecoverPendingXmssDb then fails permanently, and since QUANTUM_PENDING is a
-// single un-indexed key (not per receive-index), that blocks ALL future quantum signing,
-// wallet-wide, not just for the key that ran out. The only safe fix without implementing
-// set_index() (a change to one-time-signature state that must not be gotten wrong) is to make
-// sure the pending record never outlives a refused or otherwise-failed sign: this guard erases
-// it on any exit unless explicitly disarmed once the signature has actually been persisted.
+// SignQuantumTransactionSighash before it calls XMSS sign. xmss_private_key::set_index() is a
+// permanent stub that always returns false, so RecoverPendingXmssDb above can never actually
+// fast-forward past a leftover pending index -- it just fails permanently instead, and since
+// QUANTUM_PENDING is a single un-indexed key (not per receive-index), that blocks ALL future
+// quantum signing wallet-wide, not just for the key involved. This guard closes the common case:
+// it erases the record on any in-process exit from SignQuantumTransactionSighash (a refused sign
+// on an exhausted key, or any other failure) unless explicitly disarmed once the signature has
+// actually been persisted, so a refusal no longer bricks the wallet.
+// NOT covered: a hard crash (power loss/OOM/SIGKILL) between the pending record's commit and the
+// signature's persisted commit -- the destructor never runs, so the record is left behind and
+// next load hits the same permanently-failing recovery path. That narrower window is a real,
+// accepted residual gap; actually closing it means implementing set_index() properly, which is
+// out of scope here (getting one-time-signature index rewind wrong is worse than this bug).
 class QuantumPendingGuard
 {
 public:
@@ -160,7 +163,10 @@ public:
     {
         if (!m_armed) return;
         WalletBatch batch(m_wallet->GetDatabase());
-        batch.EraseQuantumPending();
+        if (!batch.EraseQuantumPending()) {
+            m_wallet->WalletLogPrintf("QuantumPendingGuard: failed to erase QUANTUM_PENDING on cleanup; "
+                                       "quantum signing may be stuck wallet-wide until this is cleared\n");
+        }
     }
     void Disarm() { m_armed = false; }
 

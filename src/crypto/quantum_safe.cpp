@@ -598,15 +598,14 @@ static OqsInit g_oqs_init;
     const uint256 hash = HashMessage(message);
     std::vector<uint8_t> out;
     if (!m_xmss_private || !m_sphincs_private) return out;
-    // Same exhaustion check as sign(): xmss_signature's default ctor zero-fills to
-    // SIGNATURE_SIZE, so calling .sign().save() unconditionally here would pack a
-    // signature-shaped-but-invalid blob into the bundle on an exhausted key instead of
-    // refusing, reintroducing the bug sign() was fixed to close.
-    if (m_xmss_private->get_remaining_signatures() == 0) {
-      LogError("quantum_safe_manager::create_dual_signature: XMSS key exhausted (0 signatures remaining)\n");
-      return out;
-    }
-    const auto xmss_sig = m_xmss_private->sign(hash).save();
+    // Route the XMSS half through sign() rather than calling m_xmss_private->sign().save()
+    // directly: sign() already does the exhaustion check-then-sign correctly (an empty return
+    // means refused/failed -- xmss_signature's default ctor zero-fills to SIGNATURE_SIZE, so an
+    // unconditional .save() here on a refused/failed sign would pack a signature-shaped-but-
+    // invalid blob into the bundle instead). Duplicating that check as a separate pre-check here
+    // would only test-then-act against a second, independent lock acquisition, not close it.
+    const auto xmss_sig = sign(hash, quantum_algorithm::XMSS);
+    if (xmss_sig.empty()) return out;
     const auto sphincs_sig = m_sphincs_private->sign(hash).save();
     uint32_t xlen = static_cast<uint32_t>(xmss_sig.size());
     uint32_t slen = static_cast<uint32_t>(sphincs_sig.size());
