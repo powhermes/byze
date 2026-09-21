@@ -273,6 +273,7 @@ static OqsInit g_oqs_init;
 
   uint32_t xmss_private_key::get_remaining_signatures() const
   {
+    LibOqsLock lock; // liboqs is not thread-safe; serialize against every other liboqs call
     OQS_SIG_STFL_SECRET_KEY* sk = DeserializeXmssSecret(m_secret_key);
     if (!sk) return 0;
     OQS_SIG_STFL* scheme = OQS_SIG_STFL_new(XMSS_ALG);
@@ -287,6 +288,7 @@ static OqsInit g_oqs_init;
 
   uint32_t xmss_private_key::get_index() const
   {
+    LibOqsLock lock; // liboqs is not thread-safe; serialize against every other liboqs call
     OQS_SIG_STFL_SECRET_KEY* sk = DeserializeXmssSecret(m_secret_key);
     if (!sk) return 0;
     OQS_SIG_STFL* scheme = OQS_SIG_STFL_new(XMSS_ALG);
@@ -596,6 +598,14 @@ static OqsInit g_oqs_init;
     const uint256 hash = HashMessage(message);
     std::vector<uint8_t> out;
     if (!m_xmss_private || !m_sphincs_private) return out;
+    // Same exhaustion check as sign(): xmss_signature's default ctor zero-fills to
+    // SIGNATURE_SIZE, so calling .sign().save() unconditionally here would pack a
+    // signature-shaped-but-invalid blob into the bundle on an exhausted key instead of
+    // refusing, reintroducing the bug sign() was fixed to close.
+    if (m_xmss_private->get_remaining_signatures() == 0) {
+      LogError("quantum_safe_manager::create_dual_signature: XMSS key exhausted (0 signatures remaining)\n");
+      return out;
+    }
     const auto xmss_sig = m_xmss_private->sign(hash).save();
     const auto sphincs_sig = m_sphincs_private->sign(hash).save();
     uint32_t xlen = static_cast<uint32_t>(xmss_sig.size());
