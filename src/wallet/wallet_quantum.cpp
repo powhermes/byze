@@ -141,6 +141,40 @@ static bool RecoverPendingXmssDb(WalletBatch& batch, crypto::quantum_safe_manage
     return true;
 }
 
+// RAII guard for the wallet-wide QUANTUM_PENDING recovery record written by
+// SignQuantumTransactionSighash before it calls XMSS sign. xmss_private_key::set_index() is a
+// permanent stub that always returns false, so RecoverPendingXmssDb above can never actually
+// fast-forward past a leftover pending index -- it just fails permanently instead, and since
+// QUANTUM_PENDING is a single un-indexed key (not per receive-index), that blocks ALL future
+// quantum signing wallet-wide, not just for the key involved. This guard closes the common case:
+// it erases the record on any in-process exit from SignQuantumTransactionSighash (a refused sign
+// on an exhausted key, or any other failure) unless explicitly disarmed once the signature has
+// actually been persisted, so a refusal no longer bricks the wallet.
+// NOT covered: a hard crash (power loss/OOM/SIGKILL) between the pending record's commit and the
+// signature's persisted commit -- the destructor never runs, so the record is left behind and
+// next load hits the same permanently-failing recovery path. That narrower window is a real,
+// accepted residual gap; actually closing it means implementing set_index() properly, which is
+// out of scope here (getting one-time-signature index rewind wrong is worse than this bug).
+class QuantumPendingGuard
+{
+public:
+    explicit QuantumPendingGuard(CWallet* wallet) : m_wallet(wallet) {}
+    ~QuantumPendingGuard()
+    {
+        if (!m_armed) return;
+        WalletBatch batch(m_wallet->GetDatabase());
+        if (!batch.EraseQuantumPending()) {
+            m_wallet->WalletLogPrintf("QuantumPendingGuard: failed to erase QUANTUM_PENDING on cleanup; "
+                                       "quantum signing may be stuck wallet-wide until this is cleared\n");
+        }
+    }
+    void Disarm() { m_armed = false; }
+
+private:
+    CWallet* m_wallet;
+    bool m_armed{true};
+};
+
 } // namespace
 
 bool CWallet::UnpackQuantumBlobToManager(const std::vector<unsigned char>& packed, crypto::quantum_safe_manager& mgr) const
@@ -703,6 +737,9 @@ bool CWallet::SignQuantumTransactionSighash(const uint256& sighash, std::span<co
         })) {
         return false;
     }
+    // Erases the pending record on every exit below (a refused/failed sign included) unless
+    // Disarm() is reached, which only happens once the signature is durably persisted.
+    QuantumPendingGuard pending_guard(pw);
 
     xmss_sig = mgr->sign(sighash, crypto::quantum_algorithm::XMSS);
     sphincs_sig = mgr->sign(sighash, crypto::quantum_algorithm::SPHINCS_PLUS);
@@ -747,6 +784,10 @@ bool CWallet::SignQuantumTransactionSighash(const uint256& sighash, std::span<co
         })) {
         return false;
     }
+    // Only reached once the persist txn (which erases QUANTUM_PENDING as part of the same
+    // atomic commit, above) has actually committed -- the guard's own erase would be redundant
+    // here, and must stay armed on every other return path so it can clean up after a rollback.
+    pending_guard.Disarm();
     return success;
 }
 
