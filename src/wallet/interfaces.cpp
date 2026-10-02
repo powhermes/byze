@@ -174,6 +174,11 @@ public:
         LOCK(m_wallet->cs_wallet);
         return m_wallet->IsMine(dest);
     }
+    bool isUnspendableTaprootScript(const CScript& script) override
+    {
+        LOCK(m_wallet->cs_wallet);
+        return m_wallet->IsUnspendableDescriptorTaproot(script);
+    }
     bool setAddressBook(const CTxDestination& dest, const std::string& name, const std::optional<AddressPurpose>& purpose) override
     {
         return m_wallet->SetAddressBook(dest, name, purpose);

@@ -410,7 +410,10 @@ RPCHelpMan getaddressinfo()
                         {RPCResult::Type::BOOL, "ismine", "If the address is yours."},
                         {RPCResult::Type::BOOL, "iswatchonly", "(DEPRECATED) Always false."},
                         {RPCResult::Type::BOOL, "solvable", "If we know how to spend coins sent to this address, ignoring the possible lack of private keys."},
+                        {RPCResult::Type::BOOL, "unspendable", /*optional=*/true, "Byze: only present (true) for a plain, non-quantum taproot key derived by this wallet. Coins sent to it can never be spent and are not counted in the wallet balance."},
                         {RPCResult::Type::STR, "desc", /*optional=*/true, "A descriptor for spending coins sent to this address (only when solvable)."},
+                        {RPCResult::Type::NUM, "quantum_hd_index", /*optional=*/true, "Byze: the wallet HD index the quantum program was derived at (only for this wallet's quantum addresses)."},
+                        {RPCResult::Type::NUM, "quantum_sigs_remaining", /*optional=*/true, "Byze: remaining one-time XMSS signatures for this quantum address."},
                         {RPCResult::Type::STR, "parent_desc", /*optional=*/true, "The descriptor used to derive this address if this is a descriptor wallet"},
                         {RPCResult::Type::BOOL, "isscript", /*optional=*/true, "If the key is a script."},
                         {RPCResult::Type::BOOL, "ischange", "If the address was used for change output."},
@@ -480,24 +483,35 @@ RPCHelpMan getaddressinfo()
     ret.pushKV("ismine", mine);
 
     bool solvable = false;
-    if (provider) {
+    int witnessversion{-1};
+    std::vector<unsigned char> witnessprogram;
+    const bool plain_taproot{pwallet->IsUnspendableDescriptorTaproot(scriptPubKey)};
+    if (plain_taproot) {
+        // Byze: a plain tr()/rawtr() key derived by this wallet. Consensus can never spend a
+        // witness-v1 output without a quantum program, so do not claim it is solvable. This
+        // must be checked first: IsQuantumMine() also matches these scripts after a reload.
+        ret.pushKV("unspendable", true);
+    } else if (pwallet->IsQuantumMine(scriptPubKey) &&
+        scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram) && witnessversion == 1) {
+        // Byze: a wallet witness-v1 program is SHA256(dual PQ public key bundle), not a
+        // secp256k1 output key. Check this before InferDescriptor, which would otherwise
+        // misreport roughly half of these programs (those that happen to be a valid x-only
+        // point) as a non-HD "rawtr(...)" descriptor.
+        solvable = true;
+        ret.pushKV("desc", strprintf("quantum_program(%s)", HexStr(witnessprogram)));
+        if (const auto index = pwallet->FindReceiveIndexForQuantumProgram(witnessprogram)) {
+            ret.pushKV("quantum_hd_index", static_cast<uint64_t>(*index));
+        }
+    } else if (provider) {
         auto inferred = InferDescriptor(scriptPubKey, *provider);
         solvable = inferred->IsSolvable();
         if (solvable) {
             ret.pushKV("desc", inferred->ToString());
         }
     }
-    if (!solvable && pwallet->IsQuantumSolvable(scriptPubKey)) {
-        solvable = true;
-        int witnessversion{-1};
-        std::vector<unsigned char> witnessprogram;
-        if (scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram) && witnessversion == 1) {
-            ret.pushKV("desc", strprintf("quantum_program(%s)", HexStr(witnessprogram)));
-        }
-    }
     ret.pushKV("solvable", solvable);
 
-    if (const auto remaining = pwallet->GetQuantumSignaturesRemaining(scriptPubKey)) {
+    if (const auto remaining = plain_taproot ? std::nullopt : pwallet->GetQuantumSignaturesRemaining(scriptPubKey)) {
         ret.pushKV("quantum_sigs_remaining", static_cast<uint64_t>(*remaining));
     }
 

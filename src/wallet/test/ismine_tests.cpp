@@ -5,6 +5,7 @@
 #include <key.h>
 #include <key_io.h>
 #include <node/context.h>
+#include <script/descriptor.h>
 #include <script/script.h>
 #include <script/solver.h>
 #include <script/signingprovider.h>
@@ -280,6 +281,51 @@ BOOST_AUTO_TEST_CASE(ismine_standard)
         result = spk_manager->IsMine(scriptPubKey);
         BOOST_CHECK(result);
     }
+}
+
+// Byze: plain (non-quantum) witness-v1 scripts derived by the wallet's own descriptors are
+// ismine but permanently unspendable; nothing else may be classified that way.
+BOOST_AUTO_TEST_CASE(byze_unspendable_descriptor_taproot)
+{
+    const CKey tr_key = GenerateRandomKey();
+    const CKey wpkh_key = GenerateRandomKey();
+    const CKey foreign_key = GenerateRandomKey();
+    CExtKey ext_key;
+    ext_key.SetSeed(std::as_bytes(std::span{"byze plain tr seed"}));
+
+    CWallet keystore(m_node.chain.get(), "", CreateMockableWalletDatabase());
+    BOOST_REQUIRE(CreateDescriptor(keystore, "rawtr(" + EncodeSecret(tr_key) + ")", true));
+    BOOST_REQUIRE(CreateDescriptor(keystore, "wpkh(" + EncodeSecret(wpkh_key) + ")", true));
+    const std::string ranged_desc{"tr(" + EncodeExtKey(ext_key) + "/86h/1h/0h/0/*)"};
+    BOOST_REQUIRE(CreateDescriptor(keystore, ranged_desc, true));
+
+    LOCK(keystore.cs_wallet);
+
+    const CScript plain = GetScriptForDestination(WitnessV1Taproot{XOnlyPubKey{tr_key.GetPubKey()}});
+    BOOST_CHECK(keystore.IsMine(plain));
+    BOOST_CHECK(keystore.IsUnspendableDescriptorTaproot(plain));
+
+    // Index 0 of a ranged tr() descriptor (no quantum root available: not active).
+    FlatSigningProvider desc_keys, out_keys;
+    std::string error;
+    const auto parsed{Parse(ranged_desc, desc_keys, error, /*require_checksum=*/false)};
+    BOOST_REQUIRE_EQUAL(parsed.size(), 1U);
+    std::vector<CScript> expanded;
+    BOOST_REQUIRE(parsed.at(0)->Expand(0, desc_keys, expanded, out_keys));
+    BOOST_REQUIRE_EQUAL(expanded.size(), 1U);
+    const CScript& ranged_plain = expanded.at(0);
+    BOOST_CHECK(keystore.IsMine(ranged_plain));
+    BOOST_CHECK(keystore.IsUnspendableDescriptorTaproot(ranged_plain));
+
+    // Not witness v1: never classified, even though it is ours.
+    const CScript wpkh = GetScriptForDestination(WitnessV0KeyHash{wpkh_key.GetPubKey()});
+    BOOST_CHECK(keystore.IsMine(wpkh));
+    BOOST_CHECK(!keystore.IsUnspendableDescriptorTaproot(wpkh));
+
+    // A witness-v1 output the wallet does not derive (could be someone's quantum program).
+    const CScript foreign = GetScriptForDestination(WitnessV1Taproot{XOnlyPubKey{foreign_key.GetPubKey()}});
+    BOOST_CHECK(!keystore.IsMine(foreign));
+    BOOST_CHECK(!keystore.IsUnspendableDescriptorTaproot(foreign));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -2524,6 +2524,7 @@ util::Result<void> CWallet::RemoveTxs(WalletBatch& batch, std::vector<Txid>& txs
                 mapTxSpends.erase(txin.prevout);
             for (unsigned int i = 0; i < it->second.tx->vout.size(); ++i) {
                 m_txos.erase(COutPoint(hash, i));
+                m_unspendable_txos.erase(COutPoint(hash, i));
             }
             mapWallet.erase(it);
             NotifyTransactionChanged(hash, CT_DELETED);
@@ -4164,6 +4165,7 @@ util::Result<void> CWallet::ApplyMigrationData(WalletBatch& local_wallet_batch, 
 
     // Update m_txos to match the descriptors remaining in this wallet
     m_txos.clear();
+    m_unspendable_txos.clear();
     RefreshAllTXOs();
 
     // Check if the transactions in the wallet are still ours. Either they belong here, or they belong in the watchonly wallet.
@@ -4709,6 +4711,11 @@ void CWallet::RefreshTXOsFromTx(const CWalletTx& wtx)
         const CTxOut& txout = wtx.tx->vout.at(i);
         if (!IsMine(txout)) continue;
         COutPoint outpoint(wtx.GetHash(), i);
+        if (IsUnspendableDescriptorTaproot(txout.scriptPubKey)) {
+            // Byze: never offer a plain-taproot output as spendable (see m_unspendable_txos).
+            m_unspendable_txos.emplace(outpoint, WalletTXO{wtx, txout});
+            continue;
+        }
         if (m_txos.contains(outpoint)) {
         } else {
             m_txos.emplace(outpoint, WalletTXO{wtx, txout});

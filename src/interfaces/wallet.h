@@ -106,6 +106,10 @@ public:
     //! Return whether wallet has private key.
     virtual bool isSpendable(const CTxDestination& dest) = 0;
 
+    //! Byze: whether this wallet derives `script` as a plain (non-quantum) witness-v1 key,
+    //! i.e. coins paid to it could never be spent under Byze consensus.
+    virtual bool isUnspendableTaprootScript(const CScript& script) = 0;
+
     //! Add or update address.
     virtual bool setAddressBook(const CTxDestination& dest, const std::string& name, const std::optional<wallet::AddressPurpose>& purpose) = 0;
 

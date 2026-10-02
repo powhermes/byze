@@ -47,6 +47,7 @@ struct Balance {
     CAmount m_mine_trusted{0};           //!< Trusted, at depth=GetBalance.min_depth or more
     CAmount m_mine_untrusted_pending{0}; //!< Untrusted, but in mempool (pending)
     CAmount m_mine_immature{0};          //!< Immature coinbases in the main chain
+    CAmount m_mine_unspendable{0};       //!< Byze: unspent outputs to this wallet's non-quantum witness-v1 scripts; never spendable, excluded from the fields above
 };
 Balance GetBalance(const CWallet& wallet, int min_depth = 0, bool avoid_reuse = true);
 

@@ -152,6 +152,11 @@ void MiningWidget::on_startMiningButton_clicked()
         } else {
             QMessageBox::warning(this, tr("Mining"), tr("Failed to start mining. It may already be active."));
         }
+    } catch (const UniValue& e) {
+        // RPC errors (e.g. startmining refusing a plain, non-quantum taproot payout address)
+        // are thrown as JSON-RPC error objects, not std::exception.
+        const UniValue& message = e.find_value("message");
+        QMessageBox::critical(this, tr("Mining"), tr("Error starting mining: %1").arg(QString::fromStdString(message.isStr() ? message.get_str() : e.write())));
     } catch (const std::exception& e) {
         QMessageBox::critical(this, tr("Mining"), tr("Error starting mining: %1").arg(QString::fromStdString(e.what())));
     }
