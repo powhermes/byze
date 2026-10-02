@@ -20,6 +20,7 @@
 #include <deploymentinfo.h>
 #include <deploymentstatus.h>
 #include <interfaces/mining.h>
+#include <interfaces/wallet.h>
 #include <key_io.h>
 #include <net.h>
 #include <node/context.h>
@@ -380,6 +381,35 @@ static bool getScriptFromDescriptor(const std::string_view descriptor, CScript& 
     return true;
 }
 
+/**
+ * Byze: refuse a coinbase payout script that a loaded wallet knows is a plain (non-quantum)
+ * taproot key, e.g. an address from deriveaddresses on the wallet's own tr() descriptor.
+ * Consensus only lets a 32-byte witness-v1 output be spent by revealing a dual PQ key bundle
+ * whose SHA256 is the program, so block rewards paid there are lost forever.
+ *
+ * Limitation: for a witness-v1 address that no loaded wallet knows, a quantum program
+ * (a SHA256 digest) and a BIP86 output key are indistinguishable (about half of all
+ * digests are valid x-only points), so such external addresses are accepted unchanged.
+ */
+static void EnsureCoinbaseScriptNotPlainTaproot(const NodeContext& node, const CScript& script)
+{
+    int witnessversion{-1};
+    std::vector<unsigned char> witnessprogram;
+    if (!script.IsWitnessProgram(witnessversion, witnessprogram) || witnessversion != 1 ||
+        witnessprogram.size() != WITNESS_V1_TAPROOT_SIZE) {
+        return;
+    }
+    if (!node.wallet_loader) return;
+    for (const auto& wallet : node.wallet_loader->getWallets()) {
+        if (wallet->isUnspendableTaprootScript(script)) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
+                strprintf("Refusing to mine to this address: wallet \"%s\" derives it as a plain (non-quantum) taproot key, "
+                          "and Byze consensus can never spend coins sent there. Use an address from getnewaddress instead.",
+                          wallet->getWalletName()));
+        }
+    }
+}
+
 static RPCHelpMan generatetodescriptor()
 {
     return RPCHelpMan{
@@ -410,6 +440,7 @@ static RPCHelpMan generatetodescriptor()
     }
 
     NodeContext& node = EnsureAnyNodeContext(request.context);
+    EnsureCoinbaseScriptNotPlainTaproot(node, coinbase_script);
     Mining& miner = EnsureMining(node);
     ChainstateManager& chainman = EnsureChainman(node);
 
@@ -463,6 +494,7 @@ static RPCHelpMan generatetoaddress()
     ChainstateManager& chainman = EnsureChainman(node);
 
     CScript coinbase_script = GetScriptForDestination(destination);
+    EnsureCoinbaseScriptNotPlainTaproot(node, coinbase_script);
 
     return generateBlocks(chainman, miner, coinbase_script, num_blocks, max_tries);
 },
@@ -511,6 +543,7 @@ static RPCHelpMan generateblock()
     }
 
     NodeContext& node = EnsureAnyNodeContext(request.context);
+    EnsureCoinbaseScriptNotPlainTaproot(node, coinbase_script);
     Mining& miner = EnsureMining(node);
     const CTxMemPool& mempool = EnsureMemPool(node);
 
@@ -709,6 +742,11 @@ static RPCHelpMan startmining()
             if (request.params.size() > 1) {
                 threads = request.params[1].getInt<int>();
             }
+            const CTxDestination payout_dest = DecodeDestination(address);
+            if (!IsValidDestination(payout_dest)) {
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid mining payout address");
+            }
+            EnsureCoinbaseScriptNotPlainTaproot(node, GetScriptForDestination(payout_dest));
             if (controller.IsMining()) {
                 throw JSONRPCError(RPC_MISC_ERROR, "Mining is already active; call stopmining first");
             }

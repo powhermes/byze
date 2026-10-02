@@ -269,6 +269,13 @@ Balance GetBalance(const CWallet& wallet, const int min_depth, bool avoid_reuse)
                 }
             }
         }
+        for (const auto& [outpoint, txo] : wallet.GetUnspendableTXOs()) {
+            const CWalletTx& wtx = txo.GetWalletTx();
+            if (wallet.IsSpent(outpoint)) continue;
+            if (wallet.GetTxDepthInMainChain(wtx) > 0 || wtx.InMempool()) {
+                ret.m_mine_unspendable += txo.GetTxOut().nValue;
+            }
+        }
     }
     return ret;
 }

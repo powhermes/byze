@@ -413,6 +413,7 @@ RPCHelpMan getbalances()
                     {RPCResult::Type::STR_AMOUNT, "untrusted_pending", "untrusted pending balance (outputs created by others that are in the mempool)"},
                     {RPCResult::Type::STR_AMOUNT, "immature", "balance from immature coinbase outputs"},
                     {RPCResult::Type::STR_AMOUNT, "used", /*optional=*/true, "(only present if avoid_reuse is set) balance from coins sent to addresses that were previously spent from (potentially privacy violating)"},
+                    {RPCResult::Type::STR_AMOUNT, "unspendable", /*optional=*/true, "Byze: (only present if non-zero) coins sent to this wallet's plain (non-quantum) taproot keys. Consensus can never spend them, so they are NOT included in trusted/untrusted_pending/immature."},
                 }},
                 RESULT_LAST_PROCESSED_BLOCK,
             }
@@ -444,6 +445,9 @@ RPCHelpMan getbalances()
             // the total balance, and then subtract bal to get the reused address balance.
             const auto full_bal = GetBalance(wallet, 0, false);
             balances_mine.pushKV("used", ValueFromAmount(full_bal.m_mine_trusted + full_bal.m_mine_untrusted_pending - bal.m_mine_trusted - bal.m_mine_untrusted_pending));
+        }
+        if (bal.m_mine_unspendable > 0) {
+            balances_mine.pushKV("unspendable", ValueFromAmount(bal.m_mine_unspendable));
         }
         balances.pushKV("mine", std::move(balances_mine));
     }

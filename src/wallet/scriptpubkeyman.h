@@ -385,6 +385,13 @@ public:
     /** Scripts issued by this manager mapped to descriptor pool indices (for quantum receive lookup). */
     const ScriptPubKeyMap& GetScriptPubKeysMap() const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man) { return m_map_script_pub_keys; }
 
+    /**
+     * Byze: true if `script` is registered by this manager AND is the descriptor's own
+     * standard expansion at its index (e.g. the plain BIP86 key of a tr() descriptor), as
+     * opposed to the quantum program GetNewDestination/TopUp substitute at that index.
+     */
+    bool IsDescriptorExpansionScript(const CScript& script) const;
+
     std::unique_ptr<SigningProvider> GetSolvingProvider(const CScript& script) const override;
 
     bool CanProvide(const CScript& script, SignatureData& sigdata) override;

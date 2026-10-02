@@ -886,6 +886,19 @@ bool DescriptorScriptPubKeyMan::IsMine(const CScript& script) const
     return m_map_script_pub_keys.contains(script);
 }
 
+bool DescriptorScriptPubKeyMan::IsDescriptorExpansionScript(const CScript& script) const
+{
+    LOCK(cs_desc_man);
+    const auto it = m_map_script_pub_keys.find(script);
+    if (it == m_map_script_pub_keys.end()) return false;
+    FlatSigningProvider out_keys;
+    std::vector<CScript> scripts_temp;
+    if (!m_wallet_descriptor.descriptor->ExpandFromCache(it->second, m_wallet_descriptor.cache, scripts_temp, out_keys)) {
+        return false;
+    }
+    return std::find(scripts_temp.begin(), scripts_temp.end(), script) != scripts_temp.end();
+}
+
 bool DescriptorScriptPubKeyMan::CheckDecryptionKey(const CKeyingMaterial& master_key)
 {
     LOCK(cs_desc_man);

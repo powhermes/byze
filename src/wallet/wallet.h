@@ -464,6 +464,10 @@ private:
 
     //! Set of both spent and unspent transaction outputs owned by this wallet
     std::unordered_map<COutPoint, WalletTXO, SaltedOutpointHasher> m_txos GUARDED_BY(cs_wallet);
+    //! Byze: outputs to this wallet's own witness-v1 scripts that are NOT quantum programs
+    //! (plain tr()/rawtr() descriptor keys). Consensus can never spend them, so they are
+    //! kept out of m_txos (balances, coin selection, listunspent) and only reported here.
+    std::unordered_map<COutPoint, WalletTXO, SaltedOutpointHasher> m_unspendable_txos GUARDED_BY(cs_wallet);
 
     /**
      * Catch wallet up to current chain, scanning new blocks, updating the best
@@ -554,6 +558,8 @@ public:
 
     const std::unordered_map<COutPoint, WalletTXO, SaltedOutpointHasher>& GetTXOs() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) { AssertLockHeld(cs_wallet); return m_txos; };
     std::optional<WalletTXO> GetTXO(const COutPoint& outpoint) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    //! Byze: see m_unspendable_txos.
+    const std::unordered_map<COutPoint, WalletTXO, SaltedOutpointHasher>& GetUnspendableTXOs() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) { AssertLockHeld(cs_wallet); return m_unspendable_txos; };
 
     /** Cache outputs that belong to the wallet from a single transaction */
     void RefreshTXOsFromTx(const CWalletTx& wtx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
@@ -745,6 +751,15 @@ public:
     std::optional<uint32_t> FindReceiveIndexForQuantumProgram(std::span<const unsigned char> program) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: true when wallet DB can sign this quantum scriptPubKey (independent of descriptor inference). */
     bool IsQuantumSolvable(const CScript& script) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /**
+     * Byze: true for a 32-byte witness-v1 script that one of this wallet's descriptors
+     * derives (e.g. the plain BIP86 key of the tr() descriptor) but that is NOT one of the
+     * wallet's quantum programs. Consensus only lets a witness-v1 output be spent by
+     * revealing a dual PQ key bundle hashing to the program, so such outputs are
+     * permanently unspendable. Never true for the wallet's quantum programs or for scripts
+     * that no descriptor of this wallet derives.
+     */
+    bool IsUnspendableDescriptorTaproot(const CScript& script) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: persist per-receive-index quantum state if missing (idempotent). */
     bool EnsureQuantumIndexStateForReceiveIndex(uint32_t receive_index) override EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: backfill quantumindex records for all used external descriptor pool indices. */

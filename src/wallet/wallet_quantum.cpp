@@ -537,6 +537,31 @@ bool CWallet::IsQuantumMine(const CScript& script) const
     return matches_index0;
 }
 
+bool CWallet::IsUnspendableDescriptorTaproot(const CScript& script) const
+{
+    AssertLockHeld(cs_wallet);
+    int witnessversion{-1};
+    std::vector<unsigned char> witnessprogram;
+    if (!script.IsWitnessProgram(witnessversion, witnessprogram) || witnessversion != 1 ||
+        witnessprogram.size() != WITNESS_V1_TAPROOT_SIZE) {
+        return false;
+    }
+    // Only scripts a descriptor SPKM registered (SetCache/TopUp) can be plain tr() keys; a
+    // quantum program that is mine only via the IsQuantumMine() fallback is not cached.
+    // Deliberately NOT decided via IsQuantumMine(): FindReceiveIndexForQuantumProgram()
+    // matches any witness-v1 script in the SPKM maps, and after a reload SetCache() has put
+    // the plain tr() scripts there, so IsQuantumMine() is true for them too. Instead ask the
+    // owning descriptor whether this is its own standard expansion at that index (a quantum
+    // program substituted by GetNewDestination/TopUp never is).
+    const auto it = m_cached_spks.find(script);
+    if (it == m_cached_spks.end()) return false;
+    for (const ScriptPubKeyMan* spkm : it->second) {
+        const auto* desc_spkm = dynamic_cast<const DescriptorScriptPubKeyMan*>(spkm);
+        if (desc_spkm && desc_spkm->IsDescriptorExpansionScript(script)) return true;
+    }
+    return false;
+}
+
 std::optional<CTxDestination> CWallet::GetQuantumTaprootAtIndex(uint32_t index) const
 {
     AssertLockHeld(cs_wallet);
