@@ -177,7 +177,7 @@ public:
     bool isUnspendableTaprootScript(const CScript& script) override
     {
         LOCK(m_wallet->cs_wallet);
-        return m_wallet->IsUnspendableDescriptorTaproot(script);
+        return m_wallet->IsWalletDerivedPlainTaproot(script);
     }
     bool setAddressBook(const CTxDestination& dest, const std::string& name, const std::optional<AddressPurpose>& purpose) override
     {

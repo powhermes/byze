@@ -304,6 +304,9 @@ BOOST_AUTO_TEST_CASE(byze_unspendable_descriptor_taproot)
     const CScript plain = GetScriptForDestination(WitnessV1Taproot{XOnlyPubKey{tr_key.GetPubKey()}});
     BOOST_CHECK(keystore.IsMine(plain));
     BOOST_CHECK(keystore.IsUnspendableDescriptorTaproot(plain));
+    // ... and never a quantum program (FindReceiveIndexForQuantumProgram scans the same maps).
+    BOOST_CHECK(!keystore.IsQuantumMine(plain));
+    BOOST_CHECK(!keystore.FindReceiveIndexForQuantumProgram(std::span{plain}.subspan(2)));
 
     // Index 0 of a ranged tr() descriptor (no quantum root available: not active).
     FlatSigningProvider desc_keys, out_keys;
@@ -316,6 +319,8 @@ BOOST_AUTO_TEST_CASE(byze_unspendable_descriptor_taproot)
     const CScript& ranged_plain = expanded.at(0);
     BOOST_CHECK(keystore.IsMine(ranged_plain));
     BOOST_CHECK(keystore.IsUnspendableDescriptorTaproot(ranged_plain));
+    BOOST_CHECK(!keystore.IsQuantumMine(ranged_plain));
+    BOOST_CHECK(!keystore.FindReceiveIndexForQuantumProgram(std::span{ranged_plain}.subspan(2)));
 
     // Not witness v1: never classified, even though it is ours.
     const CScript wpkh = GetScriptForDestination(WitnessV0KeyHash{wpkh_key.GetPubKey()});
@@ -326,6 +331,11 @@ BOOST_AUTO_TEST_CASE(byze_unspendable_descriptor_taproot)
     const CScript foreign = GetScriptForDestination(WitnessV1Taproot{XOnlyPubKey{foreign_key.GetPubKey()}});
     BOOST_CHECK(!keystore.IsMine(foreign));
     BOOST_CHECK(!keystore.IsUnspendableDescriptorTaproot(foreign));
+    // Mining guard: own plain expansions are refused, foreign and non-v1 scripts are not.
+    BOOST_CHECK(keystore.IsWalletDerivedPlainTaproot(plain));
+    BOOST_CHECK(keystore.IsWalletDerivedPlainTaproot(ranged_plain));
+    BOOST_CHECK(!keystore.IsWalletDerivedPlainTaproot(wpkh));
+    BOOST_CHECK(!keystore.IsWalletDerivedPlainTaproot(foreign));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

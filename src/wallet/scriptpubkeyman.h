@@ -16,6 +16,8 @@
 #include <script/descriptor.h>
 #include <script/script.h>
 #include <script/signingprovider.h>
+#include <uint256.h>
+#include <util/hasher.h>
 #include <util/result.h>
 #include <util/time.h>
 #include <wallet/crypter.h>
@@ -28,6 +30,7 @@
 #include <functional>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 
 enum class OutputType;
 
@@ -293,6 +296,11 @@ private:
     ScriptPubKeyMap m_map_script_pub_keys GUARDED_BY(cs_desc_man);
     PubKeyMap m_map_pubkeys GUARDED_BY(cs_desc_man);
     int32_t m_max_cached_index = -1;
+    //! Byze (plain-taproot mining guard only, see IsSubstitutedExpansion): witness-v1 programs of
+    //! this descriptor's own expansions that TopUp replaced by a quantum program in
+    //! m_map_script_pub_keys. Never consulted by IsMine; not persisted (TopUp rebuilds it, and
+    //! SetCache registers the loaded range's expansions in m_map_script_pub_keys directly).
+    std::unordered_set<uint256, SaltedUint256Hasher> m_substituted_expansions GUARDED_BY(cs_desc_man);
 
     KeyMap m_map_keys GUARDED_BY(cs_desc_man);
     CryptedKeyMap m_map_crypted_keys GUARDED_BY(cs_desc_man);
@@ -391,6 +399,11 @@ public:
      * opposed to the quantum program GetNewDestination/TopUp substitute at that index.
      */
     bool IsDescriptorExpansionScript(const CScript& script) const;
+    /**
+     * Byze: true if `script` is a witness-v1 expansion of this descriptor that TopUp replaced by a
+     * quantum program (so it is not in the script map). For the plain-taproot mining guard only.
+     */
+    bool IsSubstitutedExpansion(const CScript& script) const;
 
     std::unique_ptr<SigningProvider> GetSolvingProvider(const CScript& script) const override;
 
