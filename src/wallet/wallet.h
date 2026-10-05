@@ -760,6 +760,12 @@ public:
      * that no descriptor of this wallet derives.
      */
     bool IsUnspendableDescriptorTaproot(const CScript& script) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /**
+     * Byze (mining guard only): IsUnspendableDescriptorTaproot(), or `script` is an expansion of
+     * one of this wallet's descriptors that TopUp replaced by a quantum program and so is not
+     * registered (a wallet not reloaded since creation or importdescriptors).
+     */
+    bool IsWalletDerivedPlainTaproot(const CScript& script) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: persist per-receive-index quantum state if missing (idempotent). */
     bool EnsureQuantumIndexStateForReceiveIndex(uint32_t receive_index) override EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: backfill quantumindex records for all used external descriptor pool indices. */

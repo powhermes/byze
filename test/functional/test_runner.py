@@ -143,6 +143,7 @@ BASE_SCRIPTS = [
     'wallet_quantum_getnewaddress.py',
     'wallet_quantum_getaddressinfo.py',
     'wallet_quantum_plain_taproot.py',
+    'wallet_quantum_plain_taproot_reload.py',
     'wallet_quantum_invariants.py',
     'feature_quantum_p2p_compact_block_sync.py',
     'feature_quantum_mempool_relay.py',

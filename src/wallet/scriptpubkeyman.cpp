@@ -899,6 +899,18 @@ bool DescriptorScriptPubKeyMan::IsDescriptorExpansionScript(const CScript& scrip
     return std::find(scripts_temp.begin(), scripts_temp.end(), script) != scripts_temp.end();
 }
 
+bool DescriptorScriptPubKeyMan::IsSubstitutedExpansion(const CScript& script) const
+{
+    int witnessversion{-1};
+    std::vector<unsigned char> witnessprogram;
+    if (!script.IsWitnessProgram(witnessversion, witnessprogram) || witnessversion != 1 ||
+        witnessprogram.size() != uint256::size()) {
+        return false;
+    }
+    LOCK(cs_desc_man);
+    return m_substituted_expansions.contains(uint256{witnessprogram});
+}
+
 bool DescriptorScriptPubKeyMan::CheckDecryptionKey(const CKeyingMaterial& master_key)
 {
     LOCK(cs_desc_man);
@@ -1073,6 +1085,14 @@ bool DescriptorScriptPubKeyMan::TopUpWithDB(WalletBatch& batch, unsigned int siz
             if (!m_wallet_descriptor.descriptor->Expand(i, provider, scripts_temp, out_keys, &temp_cache)) return false;
         }
         if (const std::optional<CTxDestination> qdest = m_storage.GetQuantumTaprootAtIndex(i)) {
+            // Byze: the plain expansion leaves the script map here; remember its program for
+            // the plain-taproot mining guard (IsSubstitutedExpansion), never for IsMine.
+            int witnessversion{-1};
+            std::vector<unsigned char> witnessprogram;
+            if (scripts_temp[0].IsWitnessProgram(witnessversion, witnessprogram) && witnessversion == 1 &&
+                witnessprogram.size() == uint256::size()) {
+                m_substituted_expansions.insert(uint256{witnessprogram});
+            }
             scripts_temp[0] = GetScriptForDestination(*qdest);
         }
         // Add all of the scriptPubKeys to the scriptPubKey set
@@ -1648,6 +1668,7 @@ util::Result<void> DescriptorScriptPubKeyMan::UpdateWalletDescriptor(WalletDescr
 
     m_map_pubkeys.clear();
     m_map_script_pub_keys.clear();
+    m_substituted_expansions.clear();
     m_max_cached_index = -1;
     m_wallet_descriptor = descriptor;
 

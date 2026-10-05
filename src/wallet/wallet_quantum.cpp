@@ -562,6 +562,23 @@ bool CWallet::IsUnspendableDescriptorTaproot(const CScript& script) const
     return false;
 }
 
+bool CWallet::IsWalletDerivedPlainTaproot(const CScript& script) const
+{
+    AssertLockHeld(cs_wallet);
+    if (IsUnspendableDescriptorTaproot(script)) return true;
+    int witnessversion{-1};
+    std::vector<unsigned char> witnessprogram;
+    if (!script.IsWitnessProgram(witnessversion, witnessprogram) || witnessversion != 1 ||
+        witnessprogram.size() != WITNESS_V1_TAPROOT_SIZE) {
+        return false;
+    }
+    for (const auto& spk_pair : m_spk_managers) {
+        const auto* spkm = dynamic_cast<const DescriptorScriptPubKeyMan*>(spk_pair.second.get());
+        if (spkm && spkm->IsSubstitutedExpansion(script)) return true;
+    }
+    return false;
+}
+
 std::optional<CTxDestination> CWallet::GetQuantumTaprootAtIndex(uint32_t index) const
 {
     AssertLockHeld(cs_wallet);
@@ -616,6 +633,9 @@ std::optional<uint32_t> CWallet::FindReceiveIndexForQuantumProgram(std::span<con
             }
             if (witnessprogram.size() == program.size() &&
                 std::memcmp(witnessprogram.data(), program.data(), program.size()) == 0) {
+                // Byze: SetCache() (wallet load) registers each descriptor's own standard
+                // expansion, e.g. the plain BIP86 key of tr(); that is never a quantum program.
+                if (spkm->IsDescriptorExpansionScript(script)) continue;
                 return static_cast<uint32_t>(index);
             }
         }
