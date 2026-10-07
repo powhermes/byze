@@ -60,6 +60,12 @@ public:
     /** Byze: taproot output for a descriptor receive/change index (nullopt = use descriptor expansion). */
     virtual std::optional<CTxDestination> GetQuantumTaprootAtIndex(uint32_t index) const { return std::nullopt; }
     virtual bool EnsureQuantumIndexStateForReceiveIndex(uint32_t index) { return true; }
+    /** Byze: quantum taproot output for `index` of descriptor manager `spkm`. Unlike
+     *  GetQuantumTaprootAtIndex this knows whether `spkm` is the active change (internal)
+     *  manager, whose new indices live in a separate key space from receive addresses. */
+    virtual std::optional<CTxDestination> GetQuantumTaprootForSpkmIndex(const ScriptPubKeyMan& spkm, int32_t index) const { return GetQuantumTaprootAtIndex(static_cast<uint32_t>(index)); }
+    /** Byze: persist the quantum signing state backing `index` of `spkm` if missing (idempotent). */
+    virtual bool EnsureQuantumStateForSpkmIndex(const ScriptPubKeyMan& spkm, int32_t index) { return EnsureQuantumIndexStateForReceiveIndex(static_cast<uint32_t>(index)); }
 };
 
 //! Constant representing an unknown spkm creation time
@@ -370,6 +376,11 @@ public:
     bool TopUp(unsigned int size = 0) override;
 
     std::vector<WalletDestination> MarkUnusedAddresses(const CScript& script) override;
+
+    /** Byze: register the quantum program of every not-yet-used lookahead index
+     *  [next_index, range_end). Used after wallet setup, when TopUp() ran before the
+     *  descriptor was active and so could not tell receive from change. */
+    void RefreshQuantumLookahead();
 
     bool IsHDEnabled() const override;
 

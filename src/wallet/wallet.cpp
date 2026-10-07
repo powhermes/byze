@@ -3746,11 +3746,32 @@ DescriptorScriptPubKeyMan& CWallet::SetupDescriptorScriptPubKeyMan(WalletBatch& 
 void CWallet::SetupDescriptorScriptPubKeyMans(WalletBatch& batch, const CExtKey& master_key)
 {
     AssertLockHeld(cs_wallet);
-    for (bool internal : {false, true}) {
-        SetupDescriptorScriptPubKeyMan(batch, master_key, OutputType::BECH32M, internal);
+    // Byze: the descriptors' initial TopUp() runs before they are active, when the wallet cannot
+    // yet tell receive from change (nor reach the quantum HD root for the receive descriptor), so
+    // it registers only plain expansions; the quantum lookahead is registered below.
+    m_quantum_setup_in_progress = true;
+    try {
+        for (bool internal : {false, true}) {
+            SetupDescriptorScriptPubKeyMan(batch, master_key, OutputType::BECH32M, internal);
+        }
+    } catch (...) {
+        m_quantum_setup_in_progress = false;
+        throw;
     }
+    m_quantum_setup_in_progress = false;
     if (!PersistQuantumKeyMaterialFromHdMaster(batch, master_key, /*overwrite_existing=*/false)) {
         throw std::runtime_error(std::string(__func__) + ": failed to derive wallet-bound quantum keys from HD master");
+    }
+    // Byze: new wallets derive every change address in the separate change key space.
+    auto* change_spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(GetScriptPubKeyMan(OutputType::BECH32M, /*internal=*/true));
+    if (!change_spkm || !batch.WriteQuantumChangeBase(change_spkm->GetID(), 0)) {
+        throw std::runtime_error(std::string(__func__) + ": failed to record the quantum change key space");
+    }
+    m_quantum_change_base[change_spkm->GetID()] = 0;
+    for (bool internal : {false, true}) {
+        if (auto* spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(GetScriptPubKeyMan(OutputType::BECH32M, internal))) {
+            spkm->RefreshQuantumLookahead();
+        }
     }
 }
 

@@ -46,7 +46,7 @@ class WalletQuantumWalletdatRecoveryTest(BitcoinTestFramework):
         self.log.info("Multi-wallet: additional wallets do not create quantum_wallet.keys")
         miner.createwallet(wallet_name="mw2", load_on_startup=True)
         w2 = miner.get_wallet_rpc("mw2")
-        w_miner.getnewaddress()
+        mine_addr = w_miner.getnewaddress()
         w2.getnewaddress()
         assert_equal(w_miner.getwalletinfo()["quantum_keys_in_wallet"], True)
         assert_equal(w2.getwalletinfo()["quantum_keys_in_wallet"], True)
@@ -57,8 +57,10 @@ class WalletQuantumWalletdatRecoveryTest(BitcoinTestFramework):
 
         self.log.info("Mine and fund default_wallet; backup wallet.dat only")
         # RandomX: keep each generatetoaddress RPC short enough for the HTTP client timeout.
+        # self.generate() pays the framework's fixed plain-taproot key, which the wallet
+        # does not own; mine to a wallet address so default_wallet has spendable coinbases.
         for _ in range(110):
-            self.generate(miner, 1)
+            self.generatetoaddress(miner, 1, mine_addr)
         recv = w_miner.getnewaddress()
         quantum_addr_orig = recv
         info_m = w_miner.getwalletinfo()
@@ -85,7 +87,10 @@ class WalletQuantumWalletdatRecoveryTest(BitcoinTestFramework):
         info_r = w_fresh.getwalletinfo()
         assert_equal(info_r["quantum_record_format"], 2)
         assert_equal(info_r["quantum_hd_derived"], True)
-        assert_equal(w_fresh.getnewaddress(), quantum_addr_orig)
+        # getnewaddress hands out a new HD index on every call: the restored wallet owns the
+        # original address and continues after it.
+        assert_equal(w_fresh.getaddressinfo(quantum_addr_orig)["ismine"], True)
+        assert w_fresh.getnewaddress() != quantum_addr_orig
 
         self.log.info("Restored wallet.dat can sign and spend without quantum_wallet.keys")
         dest = w_miner.getnewaddress()
@@ -98,6 +103,7 @@ class WalletQuantumWalletdatRecoveryTest(BitcoinTestFramework):
         enc_pass = "QuantumEncTestPass"
         w_miner.encryptwallet(enc_pass)
         self.restart_node(0)
+        self.connect_nodes(0, 1)
         w_miner = miner.get_wallet_rpc("default_wallet")
         self.wait_until(lambda: miner.getblockchaininfo()["blocks"] > 0)
         self.assert_no_datadir_quantum_keys(miner, "miner after encrypt+restart")
@@ -116,6 +122,7 @@ class WalletQuantumWalletdatRecoveryTest(BitcoinTestFramework):
         self.sync_all()
 
         self.restart_node(0)
+        self.connect_nodes(0, 1)
         w_miner = miner.get_wallet_rpc("default_wallet")
         with WalletUnlock(w_miner, enc_pass):
             w_miner.sendtoaddress(w_fresh.getnewaddress(), Decimal("0.3"))

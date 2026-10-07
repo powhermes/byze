@@ -853,7 +853,7 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const 
         }
 
         const int32_t pool_index = m_wallet_descriptor.next_index;
-        if (const std::optional<CTxDestination> qdest = m_storage.GetQuantumTaprootAtIndex(pool_index)) {
+        if (const std::optional<CTxDestination> qdest = m_storage.GetQuantumTaprootForSpkmIndex(*this, pool_index)) {
             scripts_temp[0] = GetScriptForDestination(*qdest);
         } else if (desc_addr_type && *desc_addr_type == OutputType::BECH32M) {
             // Byze is quantum-only: consensus requires every witness-v1 output to carry a
@@ -873,7 +873,7 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const 
         m_map_script_pub_keys[scripts_temp[0]] = pool_index;
         m_wallet_descriptor.next_index++;
         WalletBatch(m_storage.GetDatabase()).WriteDescriptor(GetID(), m_wallet_descriptor);
-        if (!m_storage.EnsureQuantumIndexStateForReceiveIndex(static_cast<uint32_t>(pool_index))) {
+        if (!m_storage.EnsureQuantumStateForSpkmIndex(*this, pool_index)) {
             return util::Error{_("Error: failed to persist quantum signing state for new address")};
         }
         return dest;
@@ -1084,7 +1084,7 @@ bool DescriptorScriptPubKeyMan::TopUpWithDB(WalletBatch& batch, unsigned int siz
         if (!m_wallet_descriptor.descriptor->ExpandFromCache(i, m_wallet_descriptor.cache, scripts_temp, out_keys)) {
             if (!m_wallet_descriptor.descriptor->Expand(i, provider, scripts_temp, out_keys, &temp_cache)) return false;
         }
-        if (const std::optional<CTxDestination> qdest = m_storage.GetQuantumTaprootAtIndex(i)) {
+        if (const std::optional<CTxDestination> qdest = m_storage.GetQuantumTaprootForSpkmIndex(*this, i)) {
             // Byze: the plain expansion leaves the script map here; remember its program for
             // the plain-taproot mining guard (IsSubstitutedExpansion), never for IsMine.
             int witnessversion{-1};
@@ -1127,6 +1127,23 @@ bool DescriptorScriptPubKeyMan::TopUpWithDB(WalletBatch& batch, unsigned int siz
     return true;
 }
 
+void DescriptorScriptPubKeyMan::RefreshQuantumLookahead()
+{
+    LOCK(cs_desc_man);
+    std::set<CScript> new_spks;
+    for (int32_t i = m_wallet_descriptor.next_index; i < m_wallet_descriptor.range_end; ++i) {
+        const std::optional<CTxDestination> qdest = m_storage.GetQuantumTaprootForSpkmIndex(*this, i);
+        if (!qdest) continue;
+        const CScript script = GetScriptForDestination(*qdest);
+        if (m_map_script_pub_keys.contains(script)) continue;
+        // The plain expansion stays registered, as after a reload (SetCache); it is reported
+        // as unspendable by CWallet::IsUnspendableDescriptorTaproot.
+        m_map_script_pub_keys[script] = i;
+        new_spks.insert(script);
+    }
+    if (!new_spks.empty()) m_storage.TopUpCallback(new_spks, this);
+}
+
 std::vector<WalletDestination> DescriptorScriptPubKeyMan::MarkUnusedAddresses(const CScript& script)
 {
     LOCK(cs_desc_man);
@@ -1146,6 +1163,11 @@ std::vector<WalletDestination> DescriptorScriptPubKeyMan::MarkUnusedAddresses(co
                 result.push_back({dest, std::nullopt});
                 m_wallet_descriptor.next_index++;
             }
+        }
+        // Byze: a quantum program found on chain (e.g. by a restore rescan) must have its signing
+        // state persisted, or the output is no longer recognised after the wallet is reloaded.
+        if (!IsDescriptorExpansionScript(script) && !m_storage.EnsureQuantumStateForSpkmIndex(*this, index)) {
+            WalletLogPrintf("%s: could not persist quantum signing state for used index %d\n", __func__, index);
         }
         if (!TopUp()) {
             WalletLogPrintf("%s: Topping up keypool failed (locked wallet)\n", __func__);

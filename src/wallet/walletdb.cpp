@@ -64,6 +64,8 @@ const std::string MNEMONIC{"mnemonic"};
 const std::string QUANTUM_STATE{"quantumstate"};
 const std::string QUANTUM_PENDING{"quantumpend"};
 const std::string QUANTUM_INDEX_STATE{"quantumindex"};
+const std::string QUANTUM_CHANGE_INDEX_STATE{"quantumchgindex"};
+const std::string QUANTUM_CHANGE_BASE{"quantumchgbase"};
 const std::unordered_set<std::string> LEGACY_TYPES{CRYPTED_KEY, CSCRIPT, DEFAULTKEY, HDCHAIN, KEYMETA, KEY, OLD_KEY, POOL, WATCHMETA, WATCHS};
 } // namespace DBKeys
 
@@ -1324,6 +1326,26 @@ bool WalletBatch::WriteQuantumIndexState(uint32_t receive_index, const std::vect
 bool WalletBatch::ReadQuantumIndexState(uint32_t receive_index, std::vector<unsigned char>& data)
 {
     return m_batch->Read(std::make_pair(DBKeys::QUANTUM_INDEX_STATE, receive_index), data);
+}
+
+bool WalletBatch::WriteQuantumChangeIndexState(uint32_t change_index, const std::vector<unsigned char>& data)
+{
+    return WriteIC(std::make_pair(DBKeys::QUANTUM_CHANGE_INDEX_STATE, change_index), data);
+}
+
+bool WalletBatch::ReadQuantumChangeIndexState(uint32_t change_index, std::vector<unsigned char>& data)
+{
+    return m_batch->Read(std::make_pair(DBKeys::QUANTUM_CHANGE_INDEX_STATE, change_index), data);
+}
+
+bool WalletBatch::WriteQuantumChangeBase(const uint256& desc_id, int32_t base)
+{
+    return WriteIC(std::make_pair(DBKeys::QUANTUM_CHANGE_BASE, desc_id), base);
+}
+
+bool WalletBatch::ReadQuantumChangeBase(const uint256& desc_id, int32_t& base)
+{
+    return m_batch->Read(std::make_pair(DBKeys::QUANTUM_CHANGE_BASE, desc_id), base);
 }
 
 bool WalletBatch::EraseRecords(const std::unordered_set<std::string>& types)

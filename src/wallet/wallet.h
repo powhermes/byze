@@ -161,7 +161,8 @@ static constexpr uint64_t KNOWN_WALLET_FLAGS =
     |   WALLET_FLAG_LAST_HARDENED_XPUB_CACHED
     |   WALLET_FLAG_DISABLE_PRIVATE_KEYS
     |   WALLET_FLAG_DESCRIPTORS
-    |   WALLET_FLAG_EXTERNAL_SIGNER;
+    |   WALLET_FLAG_EXTERNAL_SIGNER
+    |   WALLET_FLAG_QUANTUM_CHANGE_DOMAIN;
 
 static constexpr uint64_t MUTABLE_WALLET_FLAGS =
         WALLET_FLAG_AVOID_REUSE;
@@ -173,7 +174,8 @@ static const std::map<WalletFlags, std::string> WALLET_FLAG_TO_STRING{
     {WALLET_FLAG_LAST_HARDENED_XPUB_CACHED, "last_hardened_xpub_cached"},
     {WALLET_FLAG_DISABLE_PRIVATE_KEYS, "disable_private_keys"},
     {WALLET_FLAG_DESCRIPTORS, "descriptor_wallet"},
-    {WALLET_FLAG_EXTERNAL_SIGNER, "external_signer"}
+    {WALLET_FLAG_EXTERNAL_SIGNER, "external_signer"},
+    {WALLET_FLAG_QUANTUM_CHANGE_DOMAIN, "quantum_change_domain"}
 };
 
 static const std::map<std::string, WalletFlags> STRING_TO_WALLET_FLAG{
@@ -183,7 +185,16 @@ static const std::map<std::string, WalletFlags> STRING_TO_WALLET_FLAG{
     {WALLET_FLAG_TO_STRING.at(WALLET_FLAG_LAST_HARDENED_XPUB_CACHED), WALLET_FLAG_LAST_HARDENED_XPUB_CACHED},
     {WALLET_FLAG_TO_STRING.at(WALLET_FLAG_DISABLE_PRIVATE_KEYS), WALLET_FLAG_DISABLE_PRIVATE_KEYS},
     {WALLET_FLAG_TO_STRING.at(WALLET_FLAG_DESCRIPTORS), WALLET_FLAG_DESCRIPTORS},
-    {WALLET_FLAG_TO_STRING.at(WALLET_FLAG_EXTERNAL_SIGNER), WALLET_FLAG_EXTERNAL_SIGNER}
+    {WALLET_FLAG_TO_STRING.at(WALLET_FLAG_EXTERNAL_SIGNER), WALLET_FLAG_EXTERNAL_SIGNER},
+    {WALLET_FLAG_TO_STRING.at(WALLET_FLAG_QUANTUM_CHANGE_DOMAIN), WALLET_FLAG_QUANTUM_CHANGE_DOMAIN}
+};
+
+/** Byze: the key space and index a wallet quantum program was derived in. Receive addresses
+ *  (and, before the change key space existed, change addresses too) use the receive space;
+ *  change addresses handed out since then use the separate change space. */
+struct QuantumKeyRef {
+    bool change{false};
+    uint32_t index{0};
 };
 
 /** A wrapper to reserve an address from a wallet
@@ -325,6 +336,22 @@ private:
     bool UnpackQuantumBlobToManager(const std::vector<unsigned char>& packed, crypto::quantum_safe_manager& mgr) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     bool LoadQuantumManagerForReceiveIndex(uint32_t receive_index, crypto::quantum_safe_manager& mgr) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     bool PersistQuantumManagerForReceiveIndex(uint32_t receive_index, crypto::quantum_safe_manager& mgr) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: as above, for a program in either the receive or the change key space. */
+    bool LoadQuantumManagerForKey(const QuantumKeyRef& ref, crypto::quantum_safe_manager& mgr) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool PersistQuantumManagerForKey(const QuantumKeyRef& ref, crypto::quantum_safe_manager& mgr) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: persist the change-key-space signing state for change index `change_index` if missing. */
+    bool EnsureQuantumChangeIndexState(uint32_t change_index) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: first internal descriptor index that derives in the change key space, or nullopt
+     *  when `spkm` is not the active change descriptor (it then derives in the receive space,
+     *  exactly as before). Change index = descriptor index - base. */
+    std::optional<int32_t> QuantumChangeBaseFor(const ScriptPubKeyMan& spkm) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: change-key-space programs this wallet derived or loaded -> change index. */
+    mutable std::map<std::array<uint8_t, 32>, uint32_t> m_quantum_change_programs GUARDED_BY(cs_wallet);
+    /** Byze: change key space base per internal descriptor id (see QuantumChangeBaseFor). */
+    mutable std::map<uint256, int32_t> m_quantum_change_base GUARDED_BY(cs_wallet);
+    /** Byze: true while SetupDescriptorScriptPubKeyMans() is creating descriptors, which are
+     *  not active yet; their lookahead quantum programs are registered once they are. */
+    bool m_quantum_setup_in_progress GUARDED_BY(cs_wallet){false};
 
     std::atomic<bool> fAbortRescan{false};
     std::atomic<bool> fScanningWallet{false}; // controlled by WalletRescanReserver
@@ -770,6 +797,13 @@ public:
     bool EnsureQuantumIndexStateForReceiveIndex(uint32_t receive_index) override EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: backfill quantumindex records for all used external descriptor pool indices. */
     void RepairQuantumReceiveIndexStates() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: load (and backfill) change-key-space programs for used change indices; establish the
+     *  change key space base for wallets created before it existed. */
+    void LoadQuantumChangeIndexStates() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze: receive- or change-key-space reference for one of this wallet's quantum programs. */
+    std::optional<QuantumKeyRef> FindQuantumKeyForProgram(std::span<const unsigned char> program) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    std::optional<CTxDestination> GetQuantumTaprootForSpkmIndex(const ScriptPubKeyMan& spkm, int32_t index) const override EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool EnsureQuantumStateForSpkmIndex(const ScriptPubKeyMan& spkm, int32_t index) override;
     /** Byze: XMSS one-time-signatures left for this quantum scriptPubKey's receive index, if known. */
     std::optional<uint32_t> GetQuantumSignaturesRemaining(const CScript& script) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 

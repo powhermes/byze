@@ -54,6 +54,12 @@ enum WalletFlags : uint64_t {
 
     //! Indicates that the wallet needs an external signer
     WALLET_FLAG_EXTERNAL_SIGNER = (1ULL << 35),
+
+    //! Byze: this wallet has handed out (or found on chain) change addresses derived in the
+    //! separate quantum change key space (see CWallet::GetQuantumTaprootForSpkmIndex). Older
+    //! releases derive change in the receive key space and would not recognise those outputs,
+    //! so this is a mandatory flag: they refuse to open the wallet instead of hiding funds.
+    WALLET_FLAG_QUANTUM_CHANGE_DOMAIN = (1ULL << 36),
 };
 
 //! Get the path of the wallet directory.

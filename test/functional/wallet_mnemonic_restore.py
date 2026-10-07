@@ -129,7 +129,10 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         assert_equal(res["has_mnemonic"], True)
 
         w_rest = peer.get_wallet_rpc("restored")
-        assert_equal(w_rest.getnewaddress(), addr_orig)
+        # Receive indices 0 (coinbase) and 1 (addr_orig, paid above) are used on chain, so the
+        # restored wallet must skip both and hand out the original's next unused address.
+        addr_next = w_orig.getnewaddress()
+        assert_equal(w_rest.getnewaddress(), addr_next)
         assert_equal(self.descriptor_xpubs(w_rest), xpubs_orig)
         info_rest = w_rest.getwalletinfo()
         assert_equal(info_rest["quantum_hd_derived"], True)
@@ -163,7 +166,7 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         w_solo = miner.get_wallet_rpc("solo_enc_src")
         solo_fund = w_solo.getnewaddress()
         self.generatetoaddress(miner, 110, solo_fund)
-        solo_addrs = [w_solo.getnewaddress() for _ in range(3)]
+        solo_addrs = [w_solo.getnewaddress() for _ in range(4)]
         solo_mnemonic = w_solo.getrecoveryphrase()["mnemonic"]
         solo_xpubs = self.descriptor_xpubs(w_solo)
         w_orig.sendtoaddress(solo_addrs[0], Decimal("1"))
@@ -180,7 +183,8 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
             miner.restorefrommnemonic("solo_enc_restored", solo_mnemonic, restore_pass)
         w_solo_r = miner.get_wallet_rpc("solo_enc_restored")
         with WalletUnlock(w_solo_r, restore_pass):
-            assert_equal([w_solo_r.getnewaddress() for _ in range(3)], solo_addrs)
+            # solo_addrs[0] was paid above, so the restore marks it used.
+            assert_equal([w_solo_r.getnewaddress() for _ in range(3)], solo_addrs[1:])
             assert_equal(w_solo_r.getrecoveryphrase()["mnemonic"], solo_mnemonic)
             assert_equal(w_solo_r.getwalletinfo()["mnemonic_matches_descriptors"], True)
         assert_equal(self.descriptor_xpubs(w_solo_r), solo_xpubs)
@@ -204,6 +208,7 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         addr_lost = w_lost.getnewaddress()
         xpubs_lost = self.descriptor_xpubs(w_lost)
         self.generatetoaddress(miner, 110, addr_lost)
+        addr_lost_next = w_lost.getnewaddress()
         miner.unloadwallet("lost_wallet")
         lost_dir = miner.wallets_path / "lost_wallet"
         assert lost_dir.exists()
@@ -212,7 +217,8 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         res_lost = miner.restorefrommnemonic("lost_wallet", mnemonic_lost)
         assert_equal(res_lost["name"], "lost_wallet")
         w_back = miner.get_wallet_rpc("lost_wallet")
-        assert_equal(w_back.getnewaddress(), addr_lost)
+        # addr_lost holds the coinbase outputs, so the restore marks it used.
+        assert_equal(w_back.getnewaddress(), addr_lost_next)
         assert_equal(self.descriptor_xpubs(w_back), xpubs_lost)
         assert w_back.getbalance() > 0
 
@@ -221,7 +227,7 @@ class WalletMnemonicRestoreTest(BitcoinTestFramework):
         shutil.rmtree(peer.wallets_path / "restored")
         peer.restorefrommnemonic("restored", mnemonic)
         w_rest2 = peer.get_wallet_rpc("restored")
-        assert_equal(w_rest2.getnewaddress(), addr_orig)
+        assert_equal(w_rest2.getnewaddress(), addr_next)
 
         self.log.info("startmining/stopmining solo RPC (distinct from pool / Byze Miner workflows)")
         miner.stopmining()

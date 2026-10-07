@@ -21,10 +21,12 @@ class WalletQuantumFlowTest(BitcoinTestFramework):
 
     def run_test(self):
         n0, n1 = self.nodes[0], self.nodes[1]
+        # self.generate() pays the framework's fixed plain-taproot key, which the wallet
+        # does not own; mine to a wallet address so n0 has spendable coinbases.
+        mine_addr = n0.getnewaddress()
         for _ in range(110):
-            self.generate(n0, 1)
+            self.generatetoaddress(n0, 1, mine_addr)
         self.sync_all()
-        n0.getnewaddress()
 
         self.log.info("getwalletinfo reports quantum health (HD-derived keys in wallet.dat)")
         info0 = n0.getwalletinfo()
@@ -74,8 +76,8 @@ class WalletQuantumFlowTest(BitcoinTestFramework):
         bad_hex = bad_tx.serialize().hex()
         h0 = n0.getblockcount()
         h1 = n1.getblockcount()
-        assert_raises_rpc_error(-25, "TestBlockValidity failed", n0.generateblock, n0.getnewaddress(), [bad_hex])
-        assert_raises_rpc_error(-25, "TestBlockValidity failed", n1.generateblock, n1.getnewaddress(), [bad_hex])
+        assert_raises_rpc_error(-25, "block-script-verify-flag-failed", n0.generateblock, n0.getnewaddress(), [bad_hex], called_by_framework=True)
+        assert_raises_rpc_error(-25, "block-script-verify-flag-failed", n1.generateblock, n1.getnewaddress(), [bad_hex], called_by_framework=True)
         assert_equal(n0.getblockcount(), h0)
         assert_equal(n1.getblockcount(), h1)
         self.sync_all()
@@ -85,6 +87,7 @@ class WalletQuantumFlowTest(BitcoinTestFramework):
         self.generate(n0, 1)
         self.sync_all()
         self.restart_node(0)
+        self.connect_nodes(0, 1)
         assert not (n0.chain_path / "quantum_wallet.keys").exists()
         n0.sendtoaddress(n1.getnewaddress(), 0.3)
         self.generate(n0, 1)
