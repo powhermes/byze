@@ -93,6 +93,10 @@ extern const std::string QUANTUM_STATE;
 extern const std::string QUANTUM_PENDING;
 /** Byze: per-receive-index quantum signing state (serialized dual-key blob). */
 extern const std::string QUANTUM_INDEX_STATE;
+/** Byze: per-change-index quantum signing state in the separate change key space. */
+extern const std::string QUANTUM_CHANGE_INDEX_STATE;
+/** Byze: first internal descriptor index (per descriptor id) deriving in the change key space. */
+extern const std::string QUANTUM_CHANGE_BASE;
 
 // Keys in this set pertain only to the legacy wallet (LegacyScriptPubKeyMan) and are removed during migration from legacy to descriptors.
 extern const std::unordered_set<std::string> LEGACY_TYPES;
@@ -289,6 +293,10 @@ public:
     bool EraseQuantumPending();
     bool WriteQuantumIndexState(uint32_t receive_index, const std::vector<unsigned char>& data);
     bool ReadQuantumIndexState(uint32_t receive_index, std::vector<unsigned char>& data);
+    bool WriteQuantumChangeIndexState(uint32_t change_index, const std::vector<unsigned char>& data);
+    bool ReadQuantumChangeIndexState(uint32_t change_index, std::vector<unsigned char>& data);
+    bool WriteQuantumChangeBase(const uint256& desc_id, int32_t base);
+    bool ReadQuantumChangeBase(const uint256& desc_id, int32_t& base);
     //! Begin a new transaction
     bool TxnBegin();
     //! Commit current transaction

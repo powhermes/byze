@@ -145,6 +145,7 @@ BASE_SCRIPTS = [
     'wallet_quantum_plain_taproot.py',
     'wallet_quantum_plain_taproot_reload.py',
     'wallet_quantum_invariants.py',
+    'wallet_quantum_change_keyspace.py',
     'feature_quantum_p2p_compact_block_sync.py',
     'feature_quantum_mempool_relay.py',
     'feature_bip68_sequence.py',

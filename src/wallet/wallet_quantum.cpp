@@ -18,6 +18,7 @@
 
 #include <compat/endian.h>
 #include <cstring>
+#include <string_view>
 
 namespace wallet {
 namespace {
@@ -60,6 +61,31 @@ static bool DeriveQuantumManagerAtIndex(const CExtKey& master, uint32_t index, c
     unsigned char ikm[BIP32_EXTKEY_SIZE + sizeof(uint32_t)];
     const size_t ikm_len = BuildQuantumIkm(master, index, ikm);
     return mgr.generate_dual_keys_from_entropy_ikm(ikm, ikm_len) && mgr.ensure_modern_keys();
+}
+
+/** Byze: change key space. Up to v0.2.5 the receive and change descriptors both used
+ *  BuildQuantumIkm(master, descriptor_index), so change index i got the same program, XMSS
+ *  tree and address as receive index i. Change addresses handed out from now on use
+ *  master || LE32(change_index) || tag instead; the tag makes this IKM longer than any
+ *  receive-space IKM (74 or 78 bytes), so the two key spaces can never meet. */
+static constexpr std::string_view QUANTUM_CHANGE_IKM_TAG{"byze/quantum/change/v1"};
+static constexpr size_t QUANTUM_CHANGE_IKM_SIZE{BIP32_EXTKEY_SIZE + sizeof(uint32_t) + QUANTUM_CHANGE_IKM_TAG.size()};
+
+static bool DeriveQuantumManagerForKey(const CExtKey& master, const QuantumKeyRef& ref, crypto::quantum_safe_manager& mgr)
+{
+    if (!ref.change) return DeriveQuantumManagerAtIndex(master, ref.index, mgr);
+    unsigned char ikm[QUANTUM_CHANGE_IKM_SIZE];
+    master.Encode(ikm);
+    WriteLE32(ikm + BIP32_EXTKEY_SIZE, ref.index);
+    std::memcpy(ikm + BIP32_EXTKEY_SIZE + sizeof(uint32_t), QUANTUM_CHANGE_IKM_TAG.data(), QUANTUM_CHANGE_IKM_TAG.size());
+    return mgr.generate_dual_keys_from_entropy_ikm(ikm, sizeof(ikm)) && mgr.ensure_modern_keys();
+}
+
+static bool DeriveQuantumProgramForKey(const CExtKey& master, const QuantumKeyRef& ref, std::array<uint8_t, 32>& program_out)
+{
+    if (!ref.change) return DeriveQuantumProgramAtIndex(master, ref.index, program_out);
+    crypto::quantum_safe_manager mgr;
+    return DeriveQuantumManagerForKey(master, ref, mgr) && ProgramFromManager(mgr, program_out);
 }
 
 static std::unique_ptr<crypto::quantum_safe_manager> CloneQuantumManager(const crypto::quantum_safe_manager& src)
@@ -239,7 +265,30 @@ static bool PersistQuantumManagerPacked(WalletBatch& batch, uint32_t receive_ind
     return true;
 }
 
+static bool PersistQuantumKeyPacked(WalletBatch& batch, const QuantumKeyRef& ref, bool enc, uint8_t origin, const std::array<uint8_t, 32>& program, const std::vector<uint8_t>& payload)
+{
+    if (!ref.change) return PersistQuantumManagerPacked(batch, ref.index, enc, origin, program, payload);
+    return batch.WriteQuantumChangeIndexState(ref.index, PackQuantumDbRecordV2(enc, origin, program, payload));
+}
+
+static bool ReadCachedQuantumProgram(WalletBatch& batch, const QuantumKeyRef& ref, std::array<uint8_t, 32>& program)
+{
+    std::vector<unsigned char> packed;
+    const bool found = ref.change ? batch.ReadQuantumChangeIndexState(ref.index, packed) : batch.ReadQuantumIndexState(ref.index, packed);
+    if (!found || packed.empty()) return false;
+    uint8_t fmt{0}, origin{0};
+    bool enc{false};
+    std::vector<uint8_t> payload;
+    return UnpackQuantumDbRecord(packed, fmt, origin, enc, program, payload);
+}
+
 bool CWallet::PersistQuantumManagerForReceiveIndex(uint32_t receive_index, crypto::quantum_safe_manager& mgr)
+{
+    AssertLockHeld(cs_wallet);
+    return PersistQuantumManagerForKey(QuantumKeyRef{.change = false, .index = receive_index}, mgr);
+}
+
+bool CWallet::PersistQuantumManagerForKey(const QuantumKeyRef& ref, crypto::quantum_safe_manager& mgr)
 {
     AssertLockHeld(cs_wallet);
 
@@ -261,14 +310,145 @@ bool CWallet::PersistQuantumManagerForReceiveIndex(uint32_t receive_index, crypt
     if (!ProgramFromManager(mgr, program)) return false;
 
     WalletBatch batch(GetDatabase());
-    if (!PersistQuantumManagerPacked(batch, receive_index, enc, m_quantum_key_origin, program, payload)) return false;
+    if (!PersistQuantumKeyPacked(batch, ref, enc, m_quantum_key_origin, program, payload)) return false;
 
-    if (receive_index == 0) {
+    if (ref.change) {
+        m_quantum_change_programs[program] = ref.index;
+    } else if (ref.index == 0) {
         m_quantum_program_bytes = program;
         m_quantum_secret_storage = payload;
         m_quantum_secret_is_encrypted = enc;
     }
     return true;
+}
+
+bool CWallet::LoadQuantumManagerForKey(const QuantumKeyRef& ref, crypto::quantum_safe_manager& mgr) const
+{
+    AssertLockHeld(cs_wallet);
+    if (!ref.change) return LoadQuantumManagerForReceiveIndex(ref.index, mgr);
+
+    WalletBatch batch(GetDatabase());
+    std::vector<unsigned char> packed;
+    if (batch.ReadQuantumChangeIndexState(ref.index, packed) && !packed.empty()) {
+        return UnpackQuantumBlobToManager(packed, mgr);
+    }
+    const std::optional<CExtKey> master = TryGetTaprootDescriptorRootExtKey();
+    if (!master) return false;
+    return DeriveQuantumManagerForKey(*master, ref, mgr);
+}
+
+bool CWallet::EnsureQuantumChangeIndexState(uint32_t change_index)
+{
+    AssertLockHeld(cs_wallet);
+    const QuantumKeyRef ref{.change = true, .index = change_index};
+    {
+        WalletBatch batch(GetDatabase());
+        std::array<uint8_t, 32> program{};
+        if (ReadCachedQuantumProgram(batch, ref, program)) {
+            m_quantum_change_programs[program] = change_index;
+            return true;
+        }
+    }
+    crypto::quantum_safe_manager mgr;
+    if (!LoadQuantumManagerForKey(ref, mgr)) return false;
+    return PersistQuantumManagerForKey(ref, mgr);
+}
+
+std::optional<int32_t> CWallet::QuantumChangeBaseFor(const ScriptPubKeyMan& spkm) const
+{
+    AssertLockHeld(cs_wallet);
+    // Only the active change descriptor uses the change key space. Any other descriptor
+    // (receive, inactive or imported) derives exactly as before.
+    if (GetScriptPubKeyMan(OutputType::BECH32M, /*internal=*/true) != &spkm) return std::nullopt;
+    const auto* desc = dynamic_cast<const DescriptorScriptPubKeyMan*>(&spkm);
+    if (!desc) return std::nullopt;
+    const uint256 id = desc->GetID();
+    if (const auto it = m_quantum_change_base.find(id); it != m_quantum_change_base.end()) return it->second;
+    int32_t base{0};
+    if (WalletBatch(GetDatabase()).ReadQuantumChangeBase(id, base) && base >= 0) {
+        m_quantum_change_base[id] = base;
+        return base;
+    }
+    return std::nullopt;
+}
+
+std::optional<CTxDestination> CWallet::GetQuantumTaprootForSpkmIndex(const ScriptPubKeyMan& spkm, int32_t index) const
+{
+    AssertLockHeld(cs_wallet);
+    // Descriptors being created are not active yet, so receive and change cannot be told
+    // apart; SetupDescriptorScriptPubKeyMans() registers their lookahead once they are.
+    if (m_quantum_setup_in_progress || index < 0) return std::nullopt;
+    const std::optional<int32_t> base = QuantumChangeBaseFor(spkm);
+    // Receive descriptor, or a change index handed out before the change key space existed:
+    // keep the original (receive key space) derivation so no existing address ever changes.
+    if (!base || index < *base) return GetQuantumTaprootAtIndex(static_cast<uint32_t>(index));
+
+    const QuantumKeyRef ref{.change = true, .index = static_cast<uint32_t>(index - *base)};
+    std::array<uint8_t, 32> program{};
+    bool have_program{false};
+    {
+        WalletBatch batch(GetDatabase());
+        have_program = ReadCachedQuantumProgram(batch, ref, program);
+    }
+    if (!have_program) {
+        const std::optional<CExtKey> master = TryGetTaprootDescriptorRootExtKey();
+        if (!master) return std::nullopt;
+        if (!DeriveQuantumProgramForKey(*master, ref, program)) return std::nullopt;
+    }
+    m_quantum_change_programs[program] = ref.index;
+    const XOnlyPubKey xonly{std::span<const unsigned char>(program.data(), 32)};
+    return WitnessV1Taproot{xonly};
+}
+
+bool CWallet::EnsureQuantumStateForSpkmIndex(const ScriptPubKeyMan& spkm, int32_t index)
+{
+    LOCK(cs_wallet);
+    if (index < 0) return false;
+    const std::optional<int32_t> base = QuantumChangeBaseFor(spkm);
+    if (!base || index < *base) return EnsureQuantumIndexStateForReceiveIndex(static_cast<uint32_t>(index));
+
+    if (!IsWalletFlagSet(WALLET_FLAG_QUANTUM_CHANGE_DOMAIN)) {
+        // First change-key-space address of this wallet: pin the base on disk, and mark the
+        // wallet so that releases which derive change in the receive key space (and so would
+        // not see these outputs) refuse to load it rather than show a short balance.
+        const auto* desc = dynamic_cast<const DescriptorScriptPubKeyMan*>(&spkm);
+        if (!desc || !WalletBatch(GetDatabase()).WriteQuantumChangeBase(desc->GetID(), *base)) return false;
+        SetWalletFlag(WALLET_FLAG_QUANTUM_CHANGE_DOMAIN);
+    }
+    return EnsureQuantumChangeIndexState(static_cast<uint32_t>(index - *base));
+}
+
+void CWallet::LoadQuantumChangeIndexStates()
+{
+    AssertLockHeld(cs_wallet);
+    m_quantum_change_programs.clear();
+    m_quantum_change_base.clear();
+    const auto* spkm = dynamic_cast<const DescriptorScriptPubKeyMan*>(GetScriptPubKeyMan(OutputType::BECH32M, /*internal=*/true));
+    if (!spkm) return;
+    const uint256 id = spkm->GetID();
+    int32_t next_index{0};
+    {
+        LOCK(spkm->cs_desc_man);
+        next_index = spkm->GetWalletDescriptor().next_index;
+    }
+    int32_t base{0};
+    if (!WalletBatch(GetDatabase()).ReadQuantumChangeBase(id, base) || base < 0) {
+        if (IsWalletFlagSet(WALLET_FLAG_QUANTUM_CHANGE_DOMAIN)) {
+            WalletLogPrintf("%s: wallet uses the quantum change key space but its base record is missing; change addresses will not be handed out\n", __func__);
+            return;
+        }
+        // Wallet created before the change key space existed: every change address handed out
+        // so far is below next_index and keeps its receive-key-space program. New change starts
+        // here; the base is written when the first such address is handed out.
+        m_quantum_change_base[id] = next_index;
+        return;
+    }
+    m_quantum_change_base[id] = base;
+    for (int32_t idx = base; idx < next_index; ++idx) {
+        if (!EnsureQuantumChangeIndexState(static_cast<uint32_t>(idx - base))) {
+            WalletLogPrintf("%s: could not load quantum change state for change index %d\n", __func__, idx - base);
+        }
+    }
 }
 
 bool CWallet::EnsureQuantumIndexStateForReceiveIndex(uint32_t receive_index)
@@ -317,17 +497,17 @@ std::optional<uint32_t> CWallet::GetQuantumSignaturesRemaining(const CScript& sc
         witnessprogram.size() != WITNESS_V1_TAPROOT_SIZE) {
         return std::nullopt;
     }
-    const std::optional<uint32_t> receive_index = FindReceiveIndexForQuantumProgram(witnessprogram);
-    if (!receive_index) return std::nullopt;
+    const std::optional<QuantumKeyRef> ref = FindQuantumKeyForProgram(witnessprogram);
+    if (!ref) return std::nullopt;
 
     CWallet* const pw = const_cast<CWallet*>(this);
     crypto::quantum_safe_manager mgr;
-    if (*receive_index == 0 && m_quantum_manager &&
+    if (!ref->change && ref->index == 0 && m_quantum_manager &&
         m_quantum_program_bytes.has_value() &&
         std::memcmp(witnessprogram.data(), m_quantum_program_bytes->data(), 32) == 0) {
         return m_quantum_manager->get_xmss_remaining_signatures();
     }
-    if (!pw->LoadQuantumManagerForReceiveIndex(*receive_index, mgr)) return std::nullopt;
+    if (!pw->LoadQuantumManagerForKey(*ref, mgr)) return std::nullopt;
     return mgr.get_xmss_remaining_signatures();
 }
 
@@ -383,6 +563,7 @@ DBErrors CWallet::LoadQuantumRecordsFromDatabase(DatabaseBatch& batch)
 
     std::vector<unsigned char> raw;
     if (!batch.Read(DBKeys::QUANTUM_STATE, raw) || raw.empty()) {
+        LoadQuantumChangeIndexStates();
         return DBErrors::LOAD_OK;
     }
     const DBErrors err = ApplyQuantumStateFromPackedBlob(raw);
@@ -397,6 +578,7 @@ DBErrors CWallet::LoadQuantumRecordsFromDatabase(DatabaseBatch& batch)
         }
     }
     RepairQuantumReceiveIndexStates();
+    LoadQuantumChangeIndexStates();
     return DBErrors::LOAD_OK;
 }
 
@@ -527,7 +709,7 @@ bool CWallet::IsQuantumMine(const CScript& script) const
         witnessprogram.size() != WITNESS_V1_TAPROOT_SIZE) {
         return false;
     }
-    if (const auto idx = FindReceiveIndexForQuantumProgram(witnessprogram)) {
+    if (FindQuantumKeyForProgram(witnessprogram)) {
         return true;
     }
     if (!m_quantum_program_bytes.has_value()) {
@@ -610,10 +792,32 @@ std::optional<CTxDestination> CWallet::GetQuantumTaprootAtIndex(uint32_t index) 
     return WitnessV1Taproot{xonly};
 }
 
+std::optional<QuantumKeyRef> CWallet::FindQuantumKeyForProgram(std::span<const unsigned char> program) const
+{
+    AssertLockHeld(cs_wallet);
+    if (program.size() != WITNESS_V1_TAPROOT_SIZE) return std::nullopt;
+    std::array<uint8_t, 32> key{};
+    std::memcpy(key.data(), program.data(), key.size());
+    if (const auto it = m_quantum_change_programs.find(key); it != m_quantum_change_programs.end()) {
+        return QuantumKeyRef{.change = true, .index = it->second};
+    }
+    if (const auto index = FindReceiveIndexForQuantumProgram(program)) {
+        return QuantumKeyRef{.change = false, .index = *index};
+    }
+    return std::nullopt;
+}
+
 std::optional<uint32_t> CWallet::FindReceiveIndexForQuantumProgram(std::span<const unsigned char> program) const
 {
     AssertLockHeld(cs_wallet);
     if (program.size() != WITNESS_V1_TAPROOT_SIZE) return std::nullopt;
+    {
+        // A change-key-space program sits in the change descriptor's script map at its
+        // descriptor index, which is not a receive index: never report it as one.
+        std::array<uint8_t, 32> key{};
+        std::memcpy(key.data(), program.data(), key.size());
+        if (m_quantum_change_programs.contains(key)) return std::nullopt;
+    }
 
     if (m_quantum_program_bytes.has_value() &&
         std::memcmp(program.data(), m_quantum_program_bytes->data(), program.size()) == 0) {
@@ -744,17 +948,17 @@ bool CWallet::SignQuantumTransactionSighash(const uint256& sighash, std::span<co
     AssertLockHeld(cs_wallet);
     if (output_program.size() != WITNESS_V1_TAPROOT_SIZE) return false;
 
-    const std::optional<uint32_t> receive_index = FindReceiveIndexForQuantumProgram(output_program);
-    if (!receive_index) return false;
+    const std::optional<QuantumKeyRef> ref = FindQuantumKeyForProgram(output_program);
+    if (!ref) return false;
 
     CWallet* const pw = const_cast<CWallet*>(this);
     crypto::quantum_safe_manager mgr_local;
     crypto::quantum_safe_manager* mgr{nullptr};
-    if (*receive_index == 0 && m_quantum_manager &&
+    if (!ref->change && ref->index == 0 && m_quantum_manager &&
         m_quantum_program_bytes.has_value() &&
         std::memcmp(output_program.data(), m_quantum_program_bytes->data(), 32) == 0) {
         mgr = m_quantum_manager.get();
-    } else if (!pw->LoadQuantumManagerForReceiveIndex(*receive_index, mgr_local)) {
+    } else if (!pw->LoadQuantumManagerForKey(*ref, mgr_local)) {
         return false;
     } else {
         mgr = &mgr_local;
@@ -770,7 +974,7 @@ bool CWallet::SignQuantumTransactionSighash(const uint256& sighash, std::span<co
     unsigned char bundle_hash[WITNESS_V1_TAPROOT_SIZE];
     CSHA256().Write(bundle.data(), bundle.size()).Finalize(bundle_hash);
     if (std::memcmp(bundle_hash, output_program.data(), output_program.size()) != 0) {
-        WalletLogPrintf("%s: quantum bundle hash does not match output program for receive index %u\n", __func__, *receive_index);
+        WalletLogPrintf("%s: quantum bundle hash does not match output program for %s index %u\n", __func__, ref->change ? "change" : "receive", ref->index);
         return false;
     }
 
@@ -814,9 +1018,9 @@ bool CWallet::SignQuantumTransactionSighash(const uint256& sighash, std::span<co
             }
             std::array<uint8_t, 32> program{};
             if (!ProgramFromManager(*mgr, program)) return false;
-            if (!PersistQuantumManagerPacked(batch, *receive_index, enc, pw->m_quantum_key_origin, program, payload)) return false;
+            if (!PersistQuantumKeyPacked(batch, *ref, enc, pw->m_quantum_key_origin, program, payload)) return false;
             batch.EraseQuantumPending();
-            if (*receive_index == 0) {
+            if (!ref->change && ref->index == 0) {
                 pw->m_quantum_program_bytes = program;
                 pw->m_quantum_secret_storage = payload;
                 pw->m_quantum_secret_is_encrypted = enc;

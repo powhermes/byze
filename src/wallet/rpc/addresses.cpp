@@ -413,6 +413,7 @@ RPCHelpMan getaddressinfo()
                         {RPCResult::Type::BOOL, "unspendable", /*optional=*/true, "Byze: only present (true) for a plain, non-quantum taproot key derived by this wallet. Coins sent to it can never be spent and are not counted in the wallet balance."},
                         {RPCResult::Type::STR, "desc", /*optional=*/true, "A descriptor for spending coins sent to this address (only when solvable)."},
                         {RPCResult::Type::NUM, "quantum_hd_index", /*optional=*/true, "Byze: the wallet HD index the quantum program was derived at (only for this wallet's quantum addresses)."},
+                        {RPCResult::Type::STR, "quantum_key_space", /*optional=*/true, "Byze: \"receive\" or \"change\": the quantum key space quantum_hd_index belongs to. Change addresses from wallets created before the separate change key space report \"receive\" (they share the receive address at that index)."},
                         {RPCResult::Type::NUM, "quantum_sigs_remaining", /*optional=*/true, "Byze: remaining one-time XMSS signatures for this quantum address."},
                         {RPCResult::Type::STR, "parent_desc", /*optional=*/true, "The descriptor used to derive this address if this is a descriptor wallet"},
                         {RPCResult::Type::BOOL, "isscript", /*optional=*/true, "If the key is a script."},
@@ -499,8 +500,9 @@ RPCHelpMan getaddressinfo()
         // point) as a non-HD "rawtr(...)" descriptor.
         solvable = true;
         ret.pushKV("desc", strprintf("quantum_program(%s)", HexStr(witnessprogram)));
-        if (const auto index = pwallet->FindReceiveIndexForQuantumProgram(witnessprogram)) {
-            ret.pushKV("quantum_hd_index", static_cast<uint64_t>(*index));
+        if (const auto ref = pwallet->FindQuantumKeyForProgram(witnessprogram)) {
+            ret.pushKV("quantum_hd_index", static_cast<uint64_t>(ref->index));
+            ret.pushKV("quantum_key_space", ref->change ? "change" : "receive");
         }
     } else if (provider) {
         auto inferred = InferDescriptor(scriptPubKey, *provider);
