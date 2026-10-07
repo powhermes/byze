@@ -1689,7 +1689,11 @@ util::Result<void> DescriptorScriptPubKeyMan::UpdateWalletDescriptor(WalletDescr
     }
 
     m_map_pubkeys.clear();
-    m_map_script_pub_keys.clear();
+    // Byze: keep m_map_script_pub_keys. The update is for the same descriptor with a range that
+    // includes the current one, so every entry stays valid, and the following TopUp() re-adds
+    // only the quantum scripts. Clearing it would drop the plain expansions registered at load
+    // (SetCache) while CWallet::m_cached_spks still lists this manager for them, so the wallet
+    // would stop treating its own plain-taproot outputs as its own until the next reload.
     m_substituted_expansions.clear();
     m_max_cached_index = -1;
     m_wallet_descriptor = descriptor;
