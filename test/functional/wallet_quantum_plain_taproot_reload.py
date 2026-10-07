@@ -309,6 +309,10 @@ class WalletQuantumPlainTaprootReloadTest(BitcoinTestFramework):
         res = d.importdescriptors(req)
         assert all(r["success"] for r in res), res
         self.stage("2_after_importdescriptors")
+        # Re-importing the wallet's own descriptors must not change what it treats as its own.
+        for probe in ("walletcreatefundedpsbt(preset plain_ext0)", "fundrawtransaction(preset plain_ext0)", "send(preset plain_ext0)"):
+            before, after = self.obs["1_fresh"]["wallet"][probe], self.obs["2_after_importdescriptors"]["wallet"][probe]
+            assert before == after, f"{probe} changed after re-import: {before!r} -> {after!r}"
 
         node.unloadwallet("d")
         node.loadwallet("d")
