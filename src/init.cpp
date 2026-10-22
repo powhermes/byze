@@ -20,6 +20,7 @@
 #include <common/system.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
+#include <crypto/randomx_hash.h>
 #include <deploymentstatus.h>
 #include <hash.h>
 #include <httprpc.h>
@@ -404,6 +405,10 @@ void Shutdown(NodeContext& node)
     node.scheduler.reset();
     node.ecc_context.reset();
     node.kernel.reset();
+
+    // Release the RandomX VM/dataset/cache only after every component that can
+    // evaluate PoW (validation, RPC mining, indexers) has been torn down.
+    CleanupRandomXResources();
 
     RemovePidFile(*node.args);
 

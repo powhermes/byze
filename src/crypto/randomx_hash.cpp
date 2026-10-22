@@ -154,10 +154,11 @@ uint256 RandomXHash(const CBlockHeader& block, bool disable_jit_for_testing)
 {
     // Ensure RandomX is initialized
     if (!randomx_initialized && !InitializeRandomX(disable_jit_for_testing)) {
-        // Fallback: return zero hash if initialization fails
-        // This should never happen in production
-        LogError("RandomX: Not initialized, returning zero hash\n");
-        return uint256();
+        // A failed init means this node cannot evaluate PoW. Returning a
+        // synthetic hash would silently corrupt every block-hash comparison
+        // downstream; abort instead of validating on garbage data.
+        LogError("RandomX: initialization failed, aborting (node cannot compute PoW hashes)\n");
+        std::abort();
     }
     
     std::lock_guard<std::mutex> lock(randomx_mutex);
