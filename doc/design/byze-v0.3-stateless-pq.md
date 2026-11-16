@@ -53,15 +53,30 @@ Add a second key-bundle type behind the same witness-v1 program commitment:
 Accepting a new bundle loosens consensus, so all nodes must upgrade before an activation height.
 Old nodes would reject the first block containing a stateless spend.
 
-## Not included (owner decision)
+## Option: migrate exhausted legacy coins (owner decision)
 
-- Recovering coins already stranded (exhausted XMSS keys) would need a SPHINCS+-only spend path
-  for legacy bundles. That is a retroactive recovery rule, which the owner's no-fork policy has
-  ruled out, and it weakens dual-signature security. Out of scope unless the owner decides otherwise.
+Owner asked 2026-11-16 whether v0.3 can also fix coins already stuck. Classes:
+
+| Class | Approx. BYZ | Recoverable by a rule change? |
+|---|---|---|
+| Coinbase paid to bare OP_1 (blocks 5–1,437) | 28,050 (measured) | No: no key exists |
+| Pre-v0.2.3 web wallet SHA3 address bug | ~22,000 (estimate) | No: keys do not match the committed program |
+| XMSS keys exhausted (pool ~74.8k, MAC wallet 30.0k, solo address overflow ~16k+) | ~120,000 (estimate) | Yes: owners still hold the SPHINCS+ key |
+
+Proposed migration rule: a legacy (XMSS+SPHINCS+) output may be spent with a SPHINCS+-only
+witness IF every output of that transaction is a v1-stateless output (or OP_RETURN/fee). The coins
+can only move into the new unlimited address type, so the rule cannot be used to keep spending
+from weakened legacy addresses. SPHINCS+-SHA2-128s is stateless hash-based and post-quantum on its own.
+
+Trade-offs: drops the second signature for that one migration spend; supersedes the earlier
+no-fork-for-recovery decisions (2026-07-02, 2026-09-14), so it needs an explicit owner decision;
+most recovered coins are pool/developer-held, so pool coins should go back to the miners they are owed to.
+Optional: allow it only until a sunset height.
 
 ## Rollout
 
-1. rc8 (no fork): built-in miner pays each block to a fresh wallet address; wallet warns when
+1. rc8 (no fork): fix startmining crash when mining is already active (segfault seen 2026-11-16);
+   built-in miner pays each block to a fresh wallet address; wallet warns when
    an address passes 800 received outputs; `getaddressinfo` shows `quantum_sigs_remaining`.
 2. v0.3.0: ML-DSA enabled in liboqs build; v1-stateless bundle in consensus behind
    `-stateless_activation_height`; wallet keygen + mnemonic derivation for ML-DSA; tests
