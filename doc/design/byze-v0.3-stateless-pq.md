@@ -24,26 +24,28 @@ any coins.
 ## Goal
 
 Spending from an address has no signature limit and no signing state, while keeping
-two independent post-quantum signatures (defence in depth) and the existing address format.
+two independent post-quantum signatures (defence in depth).
 
 ## Proposal
 
-Add a second key-bundle type behind the same witness-v1 program commitment:
+Add a new output type, **witness v2**, for a stateless key bundle (v1 stays as is):
 
 | Bundle | Contents | Program | Limit |
 |---|---|---|---|
 | v1-legacy (today) | XMSS-SHA2_10_256 pk (68 B) + SPHINCS+-128s pk (32 B) = 100 B | SHA256(bundle) | 1,024 sigs |
-| v1-stateless (new) | ML-DSA-44 pk (1,312 B) + SPHINCS+-128s pk (32 B) = 1,344 B | SHA256(bundle) | none |
+| v2-stateless (new) | ML-DSA-44 pk (1,312 B) + SPHINCS+-128s pk (32 B) = 1,344 B | SHA256(bundle), witness v2 | none |
 
-- Validation dispatches on the bundle length in the witness (100 B = legacy path, 1,344 B =
-  stateless path). The scriptPubKey stays a 32-byte witness-v1 program, so addresses keep the
-  `byz1p…` format; exchanges and explorers need no new address type.
+- New addresses are bech32m witness v2 (`byz1z…`). A distinct output type is required: a
+  32-byte program is an opaque hash, so the network could not otherwise tell a stateless
+  output from a legacy one, and the migration rule below could not be enforced.
+  Most bech32m libraries already handle any witness version; exchanges need to allow v2.
+- Before activation, check mainnet has no existing witness-v2 outputs (policy never relayed them).
 - Stateless witness: `[mldsa_sig (2,420 B), sphincs_sig (7,856 B), bundle (1,344 B)]`.
   Size is about the same as legacy (2,500 + 7,856 + 100); bundle is larger, sig is smaller.
 - ML-DSA (NIST FIPS 204) is already in liboqs; Byze's build currently has it switched off
   (`OQS_ENABLE_SIG_ML_DSA` undefined), so it is a build flag, not a new dependency.
 - Sighash is unchanged (both signatures sign the same message).
-- Wallet: after activation every new receive and change address is v1-stateless.
+- Wallet: after activation every new receive and change address is v2-stateless.
   Legacy addresses remain spendable with XMSS as today, within their remaining leaves.
 
 ## Why a hard fork
@@ -63,8 +65,11 @@ Owner asked 2026-11-16 whether v0.3 can also fix coins already stuck. Classes:
 | Pre-v0.2.3 web wallet SHA3 address bug | ~22,000 (estimate) | No: keys do not match the committed program |
 | XMSS keys exhausted (pool ~74.8k, MAC wallet 30.0k, solo address overflow ~16k+) | ~120,000 (estimate) | Yes: owners still hold the SPHINCS+ key |
 
-Proposed migration rule: a legacy (XMSS+SPHINCS+) output may be spent with a SPHINCS+-only
-witness IF every output of that transaction is a v1-stateless output (or OP_RETURN/fee). The coins
+Owner approved including this rule (2026-11-16, "yes proceed").
+
+Migration rule: a legacy (XMSS+SPHINCS+) output may be spent with a SPHINCS+-only
+witness (`[<empty>, sphincs_sig, legacy_bundle]`) IF every output of that transaction is a
+witness-v2 stateless output or OP_RETURN. Enforceable because v2 outputs are a distinct type. The coins
 can only move into the new unlimited address type, so the rule cannot be used to keep spending
 from weakened legacy addresses. SPHINCS+-SHA2-128s is stateless hash-based and post-quantum on its own.
 
@@ -79,7 +84,7 @@ Optional: allow it only until a sunset height.
    built-in miner pays each block to a fresh wallet address; wallet warns when
    an address passes 800 received outputs; `getaddressinfo` shows `quantum_sigs_remaining`.
 2. v0.3.0: ML-DSA enabled in liboqs build; v1-stateless bundle in consensus behind
-   `-stateless_activation_height`; wallet keygen + mnemonic derivation for ML-DSA; tests
+   a buried activation height in consensus params; wallet keygen + mnemonic derivation for ML-DSA; tests
    (functional: send/receive/spend >1,024 times from one address; mixed legacy/stateless tx).
 3. Testnet/regtest soak, then pick a mainnet activation height ≥ 4 weeks after release.
 4. Upgrade every known node and service before activation: pool, byze.org node, explorer,
