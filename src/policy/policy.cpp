@@ -77,7 +77,14 @@ std::vector<uint32_t> GetDust(const CTransaction& tx, CFeeRate dust_relay_rate)
     return dust_outputs;
 }
 
-bool IsStandard(const CScript& scriptPubKey, TxoutType& whichType)
+static bool IsWitnessV2Stateless(const CScript& script)
+{
+    int version{-1};
+    std::vector<unsigned char> program;
+    return script.IsWitnessProgram(version, program) && version == 2 && program.size() == WITNESS_V2_STATELESS_SIZE;
+}
+
+bool IsStandard(const CScript& scriptPubKey, TxoutType& whichType, bool stateless_pq)
 {
     std::vector<std::vector<unsigned char> > vSolutions;
     whichType = Solver(scriptPubKey, vSolutions);
@@ -87,10 +94,11 @@ bool IsStandard(const CScript& scriptPubKey, TxoutType& whichType)
         return false;
     }
     if (whichType == TxoutType::NULL_DATA) return true;
+    if (stateless_pq && whichType == TxoutType::WITNESS_UNKNOWN && IsWitnessV2Stateless(scriptPubKey)) return true;
     return whichType == TxoutType::WITNESS_V1_TAPROOT;
 }
 
-bool IsStandardTx(const CTransaction& tx, const std::optional<unsigned>& max_datacarrier_bytes, bool permit_bare_multisig, const CFeeRate& dust_relay_fee, std::string& reason)
+bool IsStandardTx(const CTransaction& tx, const std::optional<unsigned>& max_datacarrier_bytes, bool permit_bare_multisig, const CFeeRate& dust_relay_fee, std::string& reason, bool stateless_pq)
 {
     if (tx.version > TX_MAX_STANDARD_VERSION || tx.version < TX_MIN_STANDARD_VERSION) {
         reason = "version";
@@ -130,7 +138,7 @@ bool IsStandardTx(const CTransaction& tx, const std::optional<unsigned>& max_dat
     unsigned int datacarrier_bytes_left = max_datacarrier_bytes.value_or(0);
     TxoutType whichType;
     for (const CTxOut& txout : tx.vout) {
-        if (!::IsStandard(txout.scriptPubKey, whichType)) {
+        if (!::IsStandard(txout.scriptPubKey, whichType, stateless_pq)) {
             reason = "scriptpubkey";
             return false;
         }
@@ -204,7 +212,7 @@ static bool CheckSigopsBIP54(const CTransaction& tx, const CCoinsViewCache& inpu
  *
  * We also check the total number of non-witness sigops across the whole transaction, as per BIP54.
  */
-bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
+bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs, bool stateless_pq)
 {
     if (tx.IsCoinBase()) {
         return true; // Coinbases don't use vin normally
@@ -219,6 +227,9 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
 
         std::vector<std::vector<unsigned char> > vSolutions;
         TxoutType whichType = Solver(prev.scriptPubKey, vSolutions);
+        if (whichType == TxoutType::WITNESS_UNKNOWN && stateless_pq && IsWitnessV2Stateless(prev.scriptPubKey)) {
+            continue; // Byze v0.3 stateless output
+        }
         if (whichType == TxoutType::NONSTANDARD || whichType == TxoutType::WITNESS_UNKNOWN) {
             // WITNESS_UNKNOWN failures are typically also caught with a policy
             // flag in the script interpreter, but it can be helpful to catch
@@ -242,7 +253,7 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
     return true;
 }
 
-bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
+bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs, bool stateless_pq)
 {
     if (tx.IsCoinBase())
         return true; // Coinbases are skipped
@@ -304,9 +315,20 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
             if (stack.size() != 3) {
                 return false;
             }
-            if (stack[0].size() != BYZE_XMSS_SIGNATURE_SIZE) return false;
+            // v0.3 migration spend: empty XMSS slot, SPHINCS+ only (consensus checks the outputs).
+            const bool migration{stateless_pq && stack[0].empty()};
+            if (!migration && stack[0].size() != BYZE_XMSS_SIGNATURE_SIZE) return false;
             if (stack[1].size() != BYZE_SPHINCS_SIGNATURE_SIZE) return false;
             if (stack[2].size() != BYZE_DUAL_PUBKEY_BUNDLE_SIZE) return false;
+        }
+        // Byze v0.3 witness-v2 stateless spend shape.
+        if (witnessversion == 2 && witnessprogram.size() == WITNESS_V2_STATELESS_SIZE && !p2sh) {
+            if (!stateless_pq) return false;
+            const auto& stack = tx.vin[i].scriptWitness.stack;
+            if (stack.size() != 3) return false;
+            if (stack[0].size() != BYZE_MLDSA_SIGNATURE_SIZE) return false;
+            if (stack[1].size() != BYZE_SPHINCS_SIGNATURE_SIZE) return false;
+            if (stack[2].size() != BYZE_STATELESS_PUBKEY_BUNDLE_SIZE) return false;
         }
     }
     return true;

@@ -17,6 +17,12 @@
 #define BYZE_SPHINCS_SIGNATURE_SIZE               7856 // OQS_SIG_sphincs_sha2_128s_simple_length_signature
 #define BYZE_DUAL_PUBKEY_BUNDLE_SIZE              (BYZE_XMSS_PUBKEY_SIZE + BYZE_SPHINCS_PUBKEY_SIZE)
 
+// v0.3 stateless bundle (witness v2): ML-DSA-44 (FIPS 204) + SPHINCS+-SHA2-128s. No signature limit.
+#define BYZE_MLDSA_PUBKEY_SIZE                    1312 // OQS_SIG_ml_dsa_44_length_public_key
+#define BYZE_MLDSA_SECKEY_SIZE                    2560 // OQS_SIG_ml_dsa_44_length_secret_key
+#define BYZE_MLDSA_SIGNATURE_SIZE                 2420 // OQS_SIG_ml_dsa_44_length_signature
+#define BYZE_STATELESS_PUBKEY_BUNDLE_SIZE         (BYZE_MLDSA_PUBKEY_SIZE + BYZE_SPHINCS_PUBKEY_SIZE)
+
 #define BYZE_QUANTUM_SAFE_ENFORCED                1
 #define BYZE_QUANTUM_SAFE_ALWAYS_ENABLED          1
 

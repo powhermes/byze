@@ -561,6 +561,70 @@ static OqsInit g_oqs_init;
     return true;
   }
 
+  bool mldsa_keypair_from_seed(std::span<const uint8_t> seed, std::vector<uint8_t>& public_key, std::vector<uint8_t>& secret_key)
+  {
+    if (seed.size() != 32) return false;
+    LibOqsLock lock;
+    OQS_SIG* scheme = OQS_SIG_new(OQS_SIG_alg_ml_dsa_44);
+    if (!scheme) return false;
+    public_key.assign(scheme->length_public_key, 0);
+    secret_key.assign(scheme->length_secret_key, 0);
+    bool ok;
+    {
+      // ML-DSA key generation draws its 32-byte xi from randombytes; route it through the
+      // deterministic stream so the same seed always yields the same key pair.
+      DetRngScope det(seed);
+      ok = OQS_SIG_keypair(scheme, public_key.data(), secret_key.data()) == OQS_SUCCESS;
+    }
+    OQS_SIG_free(scheme);
+    if (!ok || public_key.size() != BYZE_MLDSA_PUBKEY_SIZE || secret_key.size() != BYZE_MLDSA_SECKEY_SIZE) {
+      public_key.clear();
+      secret_key.clear();
+      return false;
+    }
+    return true;
+  }
+
+  std::vector<uint8_t> mldsa_sign(std::span<const uint8_t> secret_key, const uint256& message)
+  {
+    std::vector<uint8_t> sig;
+    if (secret_key.size() != BYZE_MLDSA_SECKEY_SIZE) return sig;
+    LibOqsLock lock;
+    OQS_SIG* scheme = OQS_SIG_new(OQS_SIG_alg_ml_dsa_44);
+    if (!scheme) return sig;
+    sig.assign(scheme->length_signature, 0);
+    size_t sig_len = 0;
+    const auto msg = MessageBytes(message);
+    const bool ok = OQS_SIG_sign(scheme, sig.data(), &sig_len, msg.data(), msg.size(), secret_key.data()) == OQS_SUCCESS;
+    OQS_SIG_free(scheme);
+    if (!ok || sig_len != BYZE_MLDSA_SIGNATURE_SIZE) return {};
+    sig.resize(sig_len);
+    return sig;
+  }
+
+  bool mldsa_verify(std::span<const uint8_t> public_key, std::span<const uint8_t> signature, const uint256& message)
+  {
+    if (public_key.size() != BYZE_MLDSA_PUBKEY_SIZE || signature.size() != BYZE_MLDSA_SIGNATURE_SIZE) return false;
+    LibOqsLock lock;
+    OQS_SIG* scheme = OQS_SIG_new(OQS_SIG_alg_ml_dsa_44);
+    if (!scheme) return false;
+    const auto msg = MessageBytes(message);
+    const bool ok = OQS_SIG_verify(scheme, msg.data(), msg.size(), signature.data(), signature.size(), public_key.data()) == OQS_SUCCESS;
+    OQS_SIG_free(scheme);
+    return ok;
+  }
+
+  bool sphincs_verify_bytes(std::span<const uint8_t> public_key, std::span<const uint8_t> signature, const uint256& message)
+  {
+    sphincs_public_key pk;
+    sphincs_signature sig;
+    if (!pk.load(std::vector<uint8_t>(public_key.begin(), public_key.end())) ||
+        !sig.load(std::vector<uint8_t>(signature.begin(), signature.end()))) {
+      return false;
+    }
+    return pk.verify(message, sig);
+  }
+
   bool quantum_safe_manager::generate_dual_keys_from_entropy_ikm(const unsigned char* ikm, size_t ikm_len, uint32_t, uint32_t)
   {
     CHKDF_HMAC_SHA256_L32 hkdf(ikm, ikm_len, std::string{"byze_quantum_hd_v2"});

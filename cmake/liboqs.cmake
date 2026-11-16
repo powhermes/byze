@@ -20,7 +20,10 @@ function(add_liboqs)
     set(OQS_HAZARDOUS_EXPERIMENTAL_ENABLE_SIG_STFL_KEY_SIG_GEN ON CACHE BOOL "" FORCE)
     set(OQS_ENABLE_SIG_STFL_XMSS ON CACHE BOOL "" FORCE)
     set(OQS_ENABLE_SIG_STFL_xmss_sha256_h10 ON CACHE BOOL "" FORCE)
-    set(OQS_MINIMAL_BUILD "SIG_sphincs_sha2_128s_simple;SIG_STFL_xmss_sha256_h10" CACHE STRING "" FORCE)
+    set(OQS_ENABLE_SIG_ML_DSA ON CACHE BOOL "" FORCE)
+    set(OQS_ENABLE_SIG_ml_dsa_44 ON CACHE BOOL "" FORCE)
+    # v0.3: ML-DSA-44 (FIPS 204) is the stateless partner of SPHINCS+ for witness-v2 outputs
+    set(OQS_MINIMAL_BUILD "SIG_sphincs_sha2_128s_simple;SIG_STFL_xmss_sha256_h10;SIG_ml_dsa_44" CACHE STRING "" FORCE)
     FetchContent_MakeAvailable(liboqs)
   endif()
 
