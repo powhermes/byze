@@ -142,28 +142,33 @@ MiningController::~MiningController()
     StopMining();
 }
 
-bool MiningController::StartMining(const std::string& address, int threads)
+bool MiningController::StartMining(const std::vector<std::string>& addresses, int threads, uint32_t blocks_per_address)
 {
-    // Stop any existing mining threads first
-    if (!m_mining_threads.empty()) {
-        LogWarning("Mining threads still exist, stopping them first\n");
-        StopMining();
-        // Wait a moment for threads to fully stop
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-
-    // Double-check after cleanup
-    if (m_mining_active.load()) {
-        LogWarning("Mining still marked as active after cleanup, forcing reset\n");
-        m_mining_active = false;
-    }
-
-    // Validate address
-    CTxDestination dest = DecodeDestination(address);
-    if (!IsValidDestination(dest)) {
-        LogError("Invalid mining address: %s\n", address);
+    // One start/stop at a time. A second startmining that arrived while the first was still
+    // building its RandomX dataset used to create a second context and crash the node (2026-11-16).
+    std::lock_guard<std::mutex> control(m_control_mutex);
+    if (m_mining_active.load() || !m_mining_threads.empty()) {
+        LogWarning("startmining refused: mining is already active\n");
         return false;
     }
+    m_starting = true;
+    struct StartingReset {
+        std::atomic<bool>& flag;
+        ~StartingReset() { flag = false; }
+    } starting_reset{m_starting};
+
+    // Validate addresses
+    if (addresses.empty() || blocks_per_address == 0 || blocks_per_address > MAX_BLOCKS_PER_ADDRESS) {
+        LogError("Invalid mining addresses / blocks_per_address\n");
+        return false;
+    }
+    for (const std::string& a : addresses) {
+        if (!IsValidDestination(DecodeDestination(a))) {
+            LogError("Invalid mining address: %s\n", a);
+            return false;
+        }
+    }
+    const std::string& address = addresses.front();
     // Determine thread count (auto-detect if not provided or invalid)
     unsigned int hw_threads = std::thread::hardware_concurrency();
     if (hw_threads == 0) {
@@ -239,6 +244,10 @@ bool MiningController::StartMining(const std::string& address, int threads)
 
     {
         LOCK(m_stats_mutex);
+        m_addresses = addresses;
+        m_address_index = 0;
+        m_blocks_per_address = blocks_per_address;
+        m_blocks_on_address = 0;
         m_mining_address = address;
         m_should_stop = false;
         m_mining_active = true;
@@ -254,12 +263,33 @@ bool MiningController::StartMining(const std::string& address, int threads)
         });
     }
 
-    LogInfo("Mining started to address: %s with %u threads\n", address, m_num_threads);
+    LogInfo("Mining started to address: %s with %u threads (%u address(es), rotate every %u blocks)\n",
+            address, m_num_threads, static_cast<unsigned>(addresses.size()), blocks_per_address);
     return true;
+}
+
+void MiningController::OnBlockFound()
+{
+    LOCK(m_stats_mutex);
+    ++m_blocks_on_address;
+    if (m_blocks_on_address < m_blocks_per_address) return;
+    if (m_address_index + 1 < m_addresses.size()) {
+        ++m_address_index;
+        m_mining_address = m_addresses[m_address_index];
+        m_blocks_on_address = 0;
+        m_tip_generation->fetch_add(1); // rebuild the shared work unit with the new payout script
+        LogInfo("Mining payout rotated to address %u of %u: %s\n",
+                static_cast<unsigned>(m_address_index + 1), static_cast<unsigned>(m_addresses.size()), m_mining_address);
+    } else {
+        LogWarning("Mining address %s has been paid %lu blocks; an XMSS key signs at most 1024 inputs. "
+                   "Restart startmining with fresh addresses or later coins sent here cannot be spent.\n",
+                   m_mining_address, m_blocks_on_address);
+    }
 }
 
 void MiningController::StopMining()
 {
+    std::lock_guard<std::mutex> control(m_control_mutex);
     // Set stop flag first
     {
         LOCK(m_stats_mutex);
@@ -302,6 +332,9 @@ MiningController::MiningStats MiningController::GetStats() const
     stats.address = m_mining_address;
     stats.blocks_found = m_blocks_found.load();
     stats.hashes_tried = m_hashes_tried.load();
+    stats.blocks_on_address = m_blocks_on_address;
+    stats.blocks_per_address = m_blocks_per_address;
+    stats.addresses_remaining = m_addresses.empty() ? 0 : m_addresses.size() - 1 - m_address_index;
     
     // Calculate hashrate based on recent activity
     // Use a rolling 60-second window for hashrate calculation
@@ -368,6 +401,7 @@ void MiningController::MiningThread(size_t thread_index)
         if (MineBlock(thread_index)) {
             m_blocks_found.fetch_add(1);
             LogInfo("Block found! Total blocks: %lu\n", m_blocks_found.load());
+            OnBlockFound();
         }
         if (m_metrics) m_metrics->End(thread_index, "exit");
         
@@ -390,7 +424,12 @@ std::shared_ptr<const MiningController::WorkUnit> MiningController::BuildWork(ui
 
     BlockAssembler::Options assembler_options;
     ApplyArgsManOptions(*m_node.args, assembler_options);
-    CTxDestination dest = DecodeDestination(m_mining_address);
+    std::string payout_address;
+    {
+        LOCK(m_stats_mutex);
+        payout_address = m_mining_address;
+    }
+    CTxDestination dest = DecodeDestination(payout_address);
     assembler_options.coinbase_output_script = GetScriptForDestination(dest);
 
     BlockAssembler assembler(chainman.ActiveChainstate(), &mempool, assembler_options);
@@ -517,8 +556,14 @@ bool MiningController::MineBlock(size_t thread_index)
                 LogInfo("Successfully mined and submitted block (hash: %s, pow_hash: %s)\n", blk.GetHash().ToString(), final_hash.ToString());
                 return true;
             } else if (accepted) {
+                // Same work hashed again before the tip callback invalidated it: not a new block.
+                // Counting it inflated blocks_found and would make payout rotation early/uneven.
                 LogInfo("Block was accepted but already known (hash: %s)\n", blk.GetHash().ToString());
-                return true;
+                {
+                    std::lock_guard<std::mutex> lock(m_work_mutex);
+                    if (m_work && m_work->generation == work->generation) m_work.reset();
+                }
+                return false;
             } else {
                 LogWarning("Mined block was rejected (hash: %s, pow_hash: %s, nBits: %08x)\n", blk.GetHash().ToString(), final_hash.ToString(), blk.nBits);
                 return false;

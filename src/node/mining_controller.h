@@ -14,6 +14,8 @@
 #include <mutex>
 #include <memory>
 #include <optional>
+#include <string>
+#include <vector>
 
 class ChainstateManager;
 class CTxMemPool;
@@ -32,16 +34,30 @@ public:
     explicit MiningController(NodeContext& node);
     ~MiningController();
 
-    // Start mining to the given address
+    // Byze: one XMSS-SHA2_10 key signs at most 1,024 inputs, so a payout address must not receive
+    // more coinbase outputs than that. Rotate to the next supplied address after this many found blocks.
+    static constexpr uint32_t DEFAULT_BLOCKS_PER_ADDRESS{800};
+    static constexpr uint32_t MAX_BLOCKS_PER_ADDRESS{1000};
+
+    // Start mining to the given address(es). With several addresses the miner pays
+    // blocks_per_address found blocks to each in turn, then stays on the last one (with a warning).
     // If threads <= 0, a default based on std::thread::hardware_concurrency()
     // will be chosen and clamped to a sane range.
-    bool StartMining(const std::string& address, int threads = 0);
+    // Returns false if mining is already active or starting (no implicit restart).
+    bool StartMining(const std::vector<std::string>& addresses, int threads = 0,
+                     uint32_t blocks_per_address = DEFAULT_BLOCKS_PER_ADDRESS);
+    bool StartMining(const std::string& address, int threads = 0)
+    {
+        return StartMining(std::vector<std::string>{address}, threads);
+    }
 
     // Stop mining
     void StopMining();
 
     // Check if mining is active
     bool IsMining() const { return m_mining_active.load(); }
+    // True while StartMining is still initialising (RandomX dataset build can take ~1 minute)
+    bool IsStarting() const { return m_starting.load(); }
 
     // Get mining statistics
     struct MiningStats {
@@ -50,6 +66,9 @@ public:
         uint64_t blocks_found;
         uint64_t hashes_tried;
         double hashrate; // hashes per second
+        uint64_t blocks_on_address{0};   // blocks found while paying the current address
+        uint32_t blocks_per_address{0};  // rotation threshold
+        size_t addresses_remaining{0};   // supplied addresses not used yet
     };
 
     MiningStats GetStats() const;
@@ -87,7 +106,15 @@ private:
     // Mining-specific RandomX context (per-thread VMs)
     RandomXMiningContext* m_mining_context{nullptr};
 
-    std::string m_mining_address;
+    std::string m_mining_address;              // current payout address (guarded by m_stats_mutex)
+    std::vector<std::string> m_addresses;      // rotation list (guarded by m_stats_mutex)
+    size_t m_address_index{0};
+    uint32_t m_blocks_per_address{DEFAULT_BLOCKS_PER_ADDRESS};
+    uint64_t m_blocks_on_address{0};
+    void OnBlockFound();
+    // Serialises StartMining/StopMining so two RPC calls can never build two mining contexts at once
+    std::mutex m_control_mutex;
+    std::atomic<bool> m_starting{false};
     std::atomic<uint64_t> m_blocks_found{0};
     std::atomic<uint64_t> m_hashes_tried{0};
     std::atomic<uint64_t> m_hashrate_counter{0};

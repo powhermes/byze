@@ -61,6 +61,8 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "utxoupdatepsbt", 0, "psbt", ParamFormat::STRING },
     { "utxoupdatepsbt", 1, "descriptors" },
     { "generatetoaddress", 0, "nblocks" },
+    { "startmining", 1, "threads" },
+    { "startmining", 2, "blocks_per_address" },
     { "generatetoaddress", 2, "maxtries" },
     { "generatetodescriptor", 0, "num_blocks" },
     { "generatetodescriptor", 2, "maxtries" },
