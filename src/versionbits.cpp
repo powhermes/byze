@@ -275,6 +275,11 @@ static int32_t ComputeBlockVersion(const CBlockIndex* pindexPrev, const Consensu
         }
     }
 
+    // Byze v0.3 fork marker (enforced in ContextualCheckBlockHeader).
+    if ((pindexPrev == nullptr ? 0 : pindexPrev->nHeight + 1) >= params.StatelessPQHeight) {
+        nVersion |= VERSIONBITS_STATELESS_PQ_MARKER;
+    }
+
     return nVersion;
 }
 

@@ -97,6 +97,9 @@ extern const std::string QUANTUM_INDEX_STATE;
 extern const std::string QUANTUM_CHANGE_INDEX_STATE;
 /** Byze: first internal descriptor index (per descriptor id) deriving in the change key space. */
 extern const std::string QUANTUM_CHANGE_BASE;
+//! Byze v0.3: witness-v2 stateless program per HD index (public), and the next unused index
+extern const std::string STATELESS_PROGRAM;
+extern const std::string STATELESS_NEXT;
 
 // Keys in this set pertain only to the legacy wallet (LegacyScriptPubKeyMan) and are removed during migration from legacy to descriptors.
 extern const std::unordered_set<std::string> LEGACY_TYPES;
@@ -293,6 +296,8 @@ public:
     bool EraseQuantumPending();
     bool WriteQuantumIndexState(uint32_t receive_index, const std::vector<unsigned char>& data);
     bool ReadQuantumIndexState(uint32_t receive_index, std::vector<unsigned char>& data);
+    bool WriteStatelessProgram(uint32_t index, const std::vector<unsigned char>& program);
+    bool WriteStatelessNextIndex(uint32_t next_index);
     bool WriteQuantumChangeIndexState(uint32_t change_index, const std::vector<unsigned char>& data);
     bool ReadQuantumChangeIndexState(uint32_t change_index, std::vector<unsigned char>& data);
     bool WriteQuantumChangeBase(const uint256& desc_id, int32_t base);

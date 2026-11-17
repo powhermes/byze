@@ -6,7 +6,9 @@
 
 #include <addresstype.h>
 #include <crypto/quantum_safe_config.h>
+#include <crypto/hkdf_sha256_32.h>
 #include <crypto/sha256.h>
+#include <support/cleanse.h>
 #include <hash.h>
 #include <pubkey.h>
 #include <script/interpreter.h>
@@ -32,6 +34,45 @@ static size_t BuildQuantumIkm(const CExtKey& master, uint32_t index, unsigned ch
     }
     WriteLE32(ikm + BIP32_EXTKEY_SIZE, index);
     return BIP32_EXTKEY_SIZE + sizeof(uint32_t);
+}
+
+/** Byze v0.3: stateless (ML-DSA-44 + SPHINCS+) keys, derived from the HD master per index.
+ *  The tag makes this IKM differ from every receive/change XMSS key space. */
+static constexpr std::string_view STATELESS_IKM_TAG{"byze/quantum/stateless/v1"};
+
+struct StatelessKeyMaterial {
+    std::vector<uint8_t> mldsa_pk;
+    std::vector<uint8_t> mldsa_sk;
+    crypto::sphincs_private_key sphincs;
+    std::vector<uint8_t> bundle; // mldsa_pk || sphincs_pk
+    std::array<uint8_t, 32> program{};
+    ~StatelessKeyMaterial() { if (!mldsa_sk.empty()) memory_cleanse(mldsa_sk.data(), mldsa_sk.size()); }
+};
+
+static bool DeriveStatelessAtIndex(const CExtKey& master, uint32_t index, StatelessKeyMaterial& out)
+{
+    unsigned char ikm[BIP32_EXTKEY_SIZE + sizeof(uint32_t) + STATELESS_IKM_TAG.size()];
+    master.Encode(ikm);
+    WriteLE32(ikm + BIP32_EXTKEY_SIZE, index);
+    std::memcpy(ikm + BIP32_EXTKEY_SIZE + sizeof(uint32_t), STATELESS_IKM_TAG.data(), STATELESS_IKM_TAG.size());
+    CHKDF_HMAC_SHA256_L32 hkdf(ikm, sizeof(ikm), std::string{"byze_stateless_hd_v1"});
+    memory_cleanse(ikm, sizeof(ikm));
+    unsigned char mldsa_seed[32];
+    unsigned char sph_seed[64];
+    hkdf.Expand32(std::string{"byze/s/mldsa_seed"}, mldsa_seed);
+    hkdf.Expand32(std::string{"byze/s/sph_seed_a"}, sph_seed);
+    hkdf.Expand32(std::string{"byze/s/sph_seed_b"}, sph_seed + 32);
+    const bool ok = crypto::mldsa_keypair_from_seed(std::span<const uint8_t>(mldsa_seed, 32), out.mldsa_pk, out.mldsa_sk) &&
+                    out.sphincs.initialize_from_entropy128(sph_seed, sph_seed);
+    memory_cleanse(mldsa_seed, sizeof(mldsa_seed));
+    memory_cleanse(sph_seed, sizeof(sph_seed));
+    if (!ok) return false;
+    const std::vector<uint8_t> sphincs_pk = out.sphincs.get_public_key().save();
+    out.bundle = out.mldsa_pk;
+    out.bundle.insert(out.bundle.end(), sphincs_pk.begin(), sphincs_pk.end());
+    if (out.bundle.size() != BYZE_STATELESS_PUBKEY_BUNDLE_SIZE) return false;
+    CSHA256().Write(out.bundle.data(), out.bundle.size()).Finalize(out.program.data());
+    return true;
 }
 
 static bool ProgramFromManager(const crypto::quantum_safe_manager& mgr, std::array<uint8_t, 32>& out)
@@ -554,6 +595,20 @@ bool WalletQuantumSigningProvider::SignQuantumSighash(const uint256& sighash, st
 DBErrors CWallet::LoadQuantumRecordsFromDatabase(DatabaseBatch& batch)
 {
     AssertLockHeld(cs_wallet);
+    // Byze v0.3 stateless programs (public data, independent of the XMSS state below)
+    m_stateless_programs.clear();
+    m_stateless_next_index = 0;
+    {
+        uint32_t next{0};
+        if (batch.Read(DBKeys::STATELESS_NEXT, next)) m_stateless_next_index = next;
+        for (uint32_t i = 0; i < m_stateless_next_index + STATELESS_LOOKAHEAD; ++i) {
+            std::vector<unsigned char> prog;
+            if (!batch.Read(std::make_pair(DBKeys::STATELESS_PROGRAM, i), prog) || prog.size() != 32) continue;
+            std::array<uint8_t, 32> key;
+            std::copy(prog.begin(), prog.end(), key.begin());
+            m_stateless_programs.emplace(key, i);
+        }
+    }
     m_quantum_program_bytes.reset();
     m_quantum_secret_storage.clear();
     m_quantum_secret_is_encrypted = false;
@@ -705,8 +760,11 @@ bool CWallet::IsQuantumMine(const CScript& script) const
     AssertLockHeld(cs_wallet);
     int witnessversion{-1};
     std::vector<unsigned char> witnessprogram;
-    if (!script.IsWitnessProgram(witnessversion, witnessprogram) || witnessversion != 1 ||
-        witnessprogram.size() != WITNESS_V1_TAPROOT_SIZE) {
+    if (!script.IsWitnessProgram(witnessversion, witnessprogram)) return false;
+    if (witnessversion == 2 && witnessprogram.size() == WITNESS_V2_STATELESS_SIZE) {
+        return IsStatelessProgram(witnessprogram); // Byze v0.3
+    }
+    if (witnessversion != 1 || witnessprogram.size() != WITNESS_V1_TAPROOT_SIZE) {
         return false;
     }
     if (FindQuantumKeyForProgram(witnessprogram)) {
@@ -875,6 +933,93 @@ std::optional<CTxDestination> CWallet::GetQuantumReceiveDestination() const
     return GetQuantumTaprootAtIndex(0);
 }
 
+bool CWallet::IsStatelessProgram(std::span<const unsigned char> program) const
+{
+    AssertLockHeld(cs_wallet);
+    if (program.size() != 32) return false;
+    std::array<uint8_t, 32> key;
+    std::copy(program.begin(), program.end(), key.begin());
+    return m_stateless_programs.contains(key);
+}
+
+bool CWallet::TopUpStatelessPrograms()
+{
+    AssertLockHeld(cs_wallet);
+    if (IsCrypted() && vMasterKey.empty()) return false;
+    const std::optional<CExtKey> master = TryGetTaprootDescriptorRootExtKey();
+    if (!master) return false;
+    std::set<uint32_t> have;
+    for (const auto& [prog, idx] : m_stateless_programs) have.insert(idx);
+    WalletBatch batch(GetDatabase());
+    for (uint32_t i = 0; i < m_stateless_next_index + STATELESS_LOOKAHEAD; ++i) {
+        if (have.contains(i)) continue;
+        StatelessKeyMaterial km;
+        if (!DeriveStatelessAtIndex(*master, i, km)) return false;
+        if (!batch.WriteStatelessProgram(i, std::vector<unsigned char>(km.program.begin(), km.program.end()))) return false;
+        m_stateless_programs.emplace(km.program, i);
+        // Newly watched scripts: let the wallet's script cache / rescans see them.
+    }
+    return true;
+}
+
+util::Result<CTxDestination> CWallet::GetNewStatelessDestination(const std::string& label)
+{
+    AssertLockHeld(cs_wallet);
+    if (IsCrypted() && vMasterKey.empty()) {
+        return util::Error{_("Error: Please enter the wallet passphrase with walletpassphrase first.")};
+    }
+    if (!TryGetTaprootDescriptorRootExtKey()) {
+        return util::Error{Untranslated("Wallet has no HD master key for stateless (ML-DSA) addresses")};
+    }
+    const uint32_t index = m_stateless_next_index;
+    m_stateless_next_index = index + 1;
+    if (!TopUpStatelessPrograms()) {
+        m_stateless_next_index = index;
+        return util::Error{Untranslated("Failed to derive stateless (ML-DSA) keys")};
+    }
+    {
+        WalletBatch batch(GetDatabase());
+        if (!batch.WriteStatelessNextIndex(m_stateless_next_index)) {
+            return util::Error{Untranslated("Failed to write stateless address index")};
+        }
+    }
+    for (const auto& [prog, idx] : m_stateless_programs) {
+        if (idx != index) continue;
+        const CTxDestination dest{WitnessUnknown{2, std::vector<unsigned char>(prog.begin(), prog.end())}};
+        SetAddressBook(dest, label, AddressPurpose::RECEIVE);
+        return dest;
+    }
+    return util::Error{Untranslated("Stateless address index missing after derivation")};
+}
+
+bool CWallet::SignLegacyMigrationSighash(const uint256& sighash, std::span<const unsigned char> program, std::vector<unsigned char>& sphincs_sig, std::vector<unsigned char>& legacy_bundle) const
+{
+    AssertLockHeld(cs_wallet);
+    if (program.size() != WITNESS_V1_TAPROOT_SIZE || IsStatelessProgram(program)) return false;
+    const std::optional<QuantumKeyRef> ref = FindQuantumKeyForProgram(program);
+    if (!ref) return false;
+    CWallet* const pw = const_cast<CWallet*>(this);
+    crypto::quantum_safe_manager mgr_local;
+    const crypto::quantum_safe_manager* mgr{nullptr};
+    if (!ref->change && ref->index == 0 && m_quantum_manager && m_quantum_program_bytes.has_value() &&
+        std::memcmp(program.data(), m_quantum_program_bytes->data(), 32) == 0) {
+        mgr = m_quantum_manager.get();
+    } else if (!pw->LoadQuantumManagerForKey(*ref, mgr_local)) {
+        return false;
+    } else {
+        mgr = &mgr_local;
+    }
+    legacy_bundle = mgr->get_dual_public_key_bundle();
+    if (legacy_bundle.size() != BYZE_DUAL_PUBKEY_BUNDLE_SIZE) return false;
+    unsigned char bundle_hash[32];
+    CSHA256().Write(legacy_bundle.data(), legacy_bundle.size()).Finalize(bundle_hash);
+    if (std::memcmp(bundle_hash, program.data(), 32) != 0) return false;
+    // SPHINCS+ is stateless: signing does not touch the (possibly exhausted) XMSS state.
+    sphincs_sig = mgr->sign(sighash, crypto::quantum_algorithm::SPHINCS_PLUS);
+    const std::span<const uint8_t> sph_pk{legacy_bundle.data() + BYZE_XMSS_PUBKEY_SIZE, BYZE_SPHINCS_PUBKEY_SIZE};
+    return sphincs_sig.size() == BYZE_SPHINCS_SIGNATURE_SIZE && crypto::sphincs_verify_bytes(sph_pk, sphincs_sig, sighash);
+}
+
 bool CWallet::QuantumCanSign() const
 {
     AssertLockHeld(cs_wallet);
@@ -947,6 +1092,26 @@ bool CWallet::SignQuantumTransactionSighash(const uint256& sighash, std::span<co
 {
     AssertLockHeld(cs_wallet);
     if (output_program.size() != WITNESS_V1_TAPROOT_SIZE) return false;
+
+    // Byze v0.3: witness-v2 stateless program -> ML-DSA-44 (in the first slot) + SPHINCS+, no state.
+    if (IsStatelessProgram(output_program)) {
+        std::array<uint8_t, 32> key;
+        std::copy(output_program.begin(), output_program.end(), key.begin());
+        const uint32_t index = m_stateless_programs.at(key);
+        if (IsCrypted() && vMasterKey.empty()) return false;
+        const std::optional<CExtKey> master = TryGetTaprootDescriptorRootExtKey();
+        if (!master) return false;
+        StatelessKeyMaterial km;
+        if (!DeriveStatelessAtIndex(*master, index, km) || km.program != key) return false;
+        xmss_sig = crypto::mldsa_sign(km.mldsa_sk, sighash);
+        sphincs_sig = km.sphincs.sign(sighash).save();
+        const std::span<const uint8_t> sph_pk{km.bundle.data() + BYZE_MLDSA_PUBKEY_SIZE, BYZE_SPHINCS_PUBKEY_SIZE};
+        if (xmss_sig.size() != BYZE_MLDSA_SIGNATURE_SIZE || !crypto::sphincs_verify_bytes(sph_pk, sphincs_sig, sighash)) {
+            return false;
+        }
+        dual_pubkey_bundle = km.bundle;
+        return true;
+    }
 
     const std::optional<QuantumKeyRef> ref = FindQuantumKeyForProgram(output_program);
     if (!ref) return false;

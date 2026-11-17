@@ -812,7 +812,8 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
 
     // Rather not work on nonstandard transactions (unless -testnet/-regtest)
     std::string reason;
-    if (m_pool.m_opts.require_standard && !IsStandardTx(tx, m_pool.m_opts.max_datacarrier_bytes, m_pool.m_opts.permit_bare_multisig, m_pool.m_opts.dust_relay_feerate, reason)) {
+    const bool stateless_pq{DeploymentActiveAfter(m_active_chainstate.m_chain.Tip(), m_active_chainstate.m_chainman, Consensus::DEPLOYMENT_STATELESS_PQ)};
+    if (m_pool.m_opts.require_standard && !IsStandardTx(tx, m_pool.m_opts.max_datacarrier_bytes, m_pool.m_opts.permit_bare_multisig, m_pool.m_opts.dust_relay_feerate, reason, stateless_pq)) {
         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, reason);
     }
 
@@ -900,12 +901,12 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         return false; // state filled in by CheckTxInputs
     }
 
-    if (m_pool.m_opts.require_standard && !AreInputsStandard(tx, m_view)) {
+    if (m_pool.m_opts.require_standard && !AreInputsStandard(tx, m_view, stateless_pq)) {
         return state.Invalid(TxValidationResult::TX_INPUTS_NOT_STANDARD, "bad-txns-nonstandard-inputs");
     }
 
     // Check for non-standard witnesses.
-    if (tx.HasWitness() && m_pool.m_opts.require_standard && !IsWitnessStandard(tx, m_view)) {
+    if (tx.HasWitness() && m_pool.m_opts.require_standard && !IsWitnessStandard(tx, m_view, stateless_pq)) {
         return state.Invalid(TxValidationResult::TX_WITNESS_MUTATED, "bad-witness-nonstandard");
     }
 
@@ -1158,7 +1159,11 @@ bool MemPoolAccept::PolicyScriptChecks(const ATMPArgs& args, Workspace& ws)
     const CTransaction& tx = *ws.m_ptx;
     TxValidationState& state = ws.m_state;
 
-    constexpr script_verify_flags scriptVerifyFlags = STANDARD_SCRIPT_VERIFY_FLAGS;
+    script_verify_flags scriptVerifyFlags = STANDARD_SCRIPT_VERIFY_FLAGS;
+    // Byze v0.3: once the stateless-PQ rules apply to the next block, policy checks use them too.
+    if (DeploymentActiveAfter(m_active_chainstate.m_chain.Tip(), m_active_chainstate.m_chainman, Consensus::DEPLOYMENT_STATELESS_PQ)) {
+        scriptVerifyFlags |= SCRIPT_VERIFY_STATELESS_PQ;
+    }
 
     // Check input scripts and signatures.
     // This is done last to help prevent CPU exhaustion denial-of-service attacks.
@@ -2314,6 +2319,11 @@ script_verify_flags GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
     // Enforce BIP147 NULLDUMMY (activated simultaneously with segwit)
     if (DeploymentActiveAt(block_index, chainman, Consensus::DEPLOYMENT_SEGWIT)) {
         flags |= SCRIPT_VERIFY_NULLDUMMY;
+    }
+
+    // Byze v0.3 hard fork: witness-v2 stateless outputs + one-way legacy migration spends.
+    if (DeploymentActiveAt(block_index, chainman, Consensus::DEPLOYMENT_STATELESS_PQ)) {
+        flags |= SCRIPT_VERIFY_STATELESS_PQ;
     }
 
     return flags;
@@ -4293,6 +4303,14 @@ static bool ContextualCheckBlockHeader(const CBlockHeader& block, BlockValidatio
         (block.nVersion < 4 && DeploymentActiveAfter(pindexPrev, chainman, Consensus::DEPLOYMENT_CLTV))) {
             return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, strprintf("bad-version(0x%08x)", block.nVersion),
                                  strprintf("rejected nVersion=0x%08x block", block.nVersion));
+    }
+
+    // Byze v0.3: after activation every block must carry the fork marker, so blocks mined by
+    // pre-v0.3 software are invalid here and can never reorg the upgraded chain.
+    if (DeploymentActiveAfter(pindexPrev, chainman, Consensus::DEPLOYMENT_STATELESS_PQ) &&
+        !(block.nVersion & VERSIONBITS_STATELESS_PQ_MARKER)) {
+        return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, strprintf("bad-version-statelesspq(0x%08x)", block.nVersion),
+                             "block after v0.3 activation lacks the fork marker bit (mined by pre-v0.3 software)");
     }
 
     return true;

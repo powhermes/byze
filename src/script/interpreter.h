@@ -145,6 +145,10 @@ enum class script_verify_flag_name : uint8_t {
     // Making unknown public key versions (in BIP 342 scripts) non-standard
     SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE,
 
+    // Byze v0.3: witness-v2 stateless outputs (ML-DSA-44 + SPHINCS+) and the one-way migration
+    // spend of legacy (XMSS + SPHINCS+) outputs with SPHINCS+ alone. Consensus after activation.
+    SCRIPT_VERIFY_STATELESS_PQ,
+
     // Constants to point to the highest flag in use. Add new flags above this line.
     //
     SCRIPT_VERIFY_END_MARKER
@@ -237,6 +241,7 @@ struct ScriptExecutionData
 static constexpr size_t WITNESS_V0_SCRIPTHASH_SIZE = 32;
 static constexpr size_t WITNESS_V0_KEYHASH_SIZE = 20;
 static constexpr size_t WITNESS_V1_TAPROOT_SIZE = 32;
+static constexpr size_t WITNESS_V2_STATELESS_SIZE = 32; // SHA256(ML-DSA-44 pk || SPHINCS+ pk)
 
 static constexpr uint8_t TAPROOT_LEAF_MASK = 0xfe;
 static constexpr uint8_t TAPROOT_LEAF_TAPSCRIPT = 0xc0;
@@ -289,6 +294,19 @@ public:
         return false;
     }
 
+    // v0.3 witness-v2 spend: ML-DSA-44 + SPHINCS+ over the same sighash as witness v1.
+    virtual bool CheckStatelessDualSignature(std::span<const unsigned char> mldsa_sig, std::span<const unsigned char> sphincs_sig, std::span<const unsigned char> bundle, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror = nullptr) const
+    {
+        return false;
+    }
+
+    // v0.3 migration spend of a legacy witness-v1 output: SPHINCS+ only, and every output of the
+    // spending transaction must be a witness-v2 stateless output or OP_RETURN.
+    virtual bool CheckQuantumMigrationSignature(std::span<const unsigned char> sphincs_sig, std::span<const unsigned char> legacy_bundle, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror = nullptr) const
+    {
+        return false;
+    }
+
     virtual bool CheckLockTime(const CScriptNum& nLockTime) const
     {
          return false;
@@ -336,6 +354,8 @@ public:
     bool CheckECDSASignature(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override;
     bool CheckSchnorrSignature(std::span<const unsigned char> sig, std::span<const unsigned char> pubkey, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror = nullptr) const override;
     bool CheckQuantumDualSignature(std::span<const unsigned char> xmss_sig, std::span<const unsigned char> sphincs_sig, std::span<const unsigned char> dual_pubkey, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror = nullptr) const override;
+    bool CheckStatelessDualSignature(std::span<const unsigned char> mldsa_sig, std::span<const unsigned char> sphincs_sig, std::span<const unsigned char> bundle, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror = nullptr) const override;
+    bool CheckQuantumMigrationSignature(std::span<const unsigned char> sphincs_sig, std::span<const unsigned char> legacy_bundle, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror = nullptr) const override;
     bool CheckLockTime(const CScriptNum& nLockTime) const override;
     bool CheckSequence(const CScriptNum& nSequence) const override;
 };
@@ -364,6 +384,16 @@ public:
     bool CheckQuantumDualSignature(std::span<const unsigned char> xmss_sig, std::span<const unsigned char> sphincs_sig, std::span<const unsigned char> dual_pubkey, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror = nullptr) const override
     {
         return m_checker.CheckQuantumDualSignature(xmss_sig, sphincs_sig, dual_pubkey, sigversion, execdata, serror);
+    }
+
+    bool CheckStatelessDualSignature(std::span<const unsigned char> mldsa_sig, std::span<const unsigned char> sphincs_sig, std::span<const unsigned char> bundle, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror = nullptr) const override
+    {
+        return m_checker.CheckStatelessDualSignature(mldsa_sig, sphincs_sig, bundle, sigversion, execdata, serror);
+    }
+
+    bool CheckQuantumMigrationSignature(std::span<const unsigned char> sphincs_sig, std::span<const unsigned char> legacy_bundle, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror = nullptr) const override
+    {
+        return m_checker.CheckQuantumMigrationSignature(sphincs_sig, legacy_bundle, sigversion, execdata, serror);
     }
 
     bool CheckLockTime(const CScriptNum& nLockTime) const override

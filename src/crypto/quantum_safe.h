@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -198,6 +199,15 @@ namespace crypto
   std::string algorithm_to_string(quantum_algorithm algo);
   quantum_algorithm string_to_algorithm(const std::string& str);
   bool is_quantum_safe_enabled();
+
+  // ---- v0.3 stateless signatures: ML-DSA-44 (FIPS 204). No per-key signature limit, no state. ----
+  // Deterministic key pair from a 32-byte seed (same seed -> same keys), so mnemonic restore works.
+  bool mldsa_keypair_from_seed(std::span<const uint8_t> seed, std::vector<uint8_t>& public_key, std::vector<uint8_t>& secret_key);
+  // Signs the 32-byte message; returns an empty vector on failure.
+  std::vector<uint8_t> mldsa_sign(std::span<const uint8_t> secret_key, const uint256& message);
+  bool mldsa_verify(std::span<const uint8_t> public_key, std::span<const uint8_t> signature, const uint256& message);
+  // SPHINCS+ verification on raw bytes (used by the v2 path and the legacy migration path).
+  bool sphincs_verify_bytes(std::span<const uint8_t> public_key, std::span<const uint8_t> signature, const uint256& message);
 } // namespace crypto
 
 #endif // BITCOIN_CRYPTO_QUANTUM_SAFE_H

@@ -66,6 +66,8 @@ const std::string QUANTUM_PENDING{"quantumpend"};
 const std::string QUANTUM_INDEX_STATE{"quantumindex"};
 const std::string QUANTUM_CHANGE_INDEX_STATE{"quantumchgindex"};
 const std::string QUANTUM_CHANGE_BASE{"quantumchgbase"};
+const std::string STATELESS_PROGRAM{"qstatelessprog"};
+const std::string STATELESS_NEXT{"qstatelessnext"};
 const std::unordered_set<std::string> LEGACY_TYPES{CRYPTED_KEY, CSCRIPT, DEFAULTKEY, HDCHAIN, KEYMETA, KEY, OLD_KEY, POOL, WATCHMETA, WATCHS};
 } // namespace DBKeys
 
@@ -1316,6 +1318,16 @@ bool WalletBatch::ReadQuantumPending(uint32_t& index)
 bool WalletBatch::EraseQuantumPending()
 {
     return EraseIC(DBKeys::QUANTUM_PENDING);
+}
+
+bool WalletBatch::WriteStatelessProgram(uint32_t index, const std::vector<unsigned char>& program)
+{
+    return WriteIC(std::make_pair(DBKeys::STATELESS_PROGRAM, index), program);
+}
+
+bool WalletBatch::WriteStatelessNextIndex(uint32_t next_index)
+{
+    return WriteIC(DBKeys::STATELESS_NEXT, next_index);
 }
 
 bool WalletBatch::WriteQuantumIndexState(uint32_t receive_index, const std::vector<unsigned char>& data)

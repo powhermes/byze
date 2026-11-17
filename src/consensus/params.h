@@ -28,8 +28,9 @@ enum BuriedDeployment : int16_t {
     DEPLOYMENT_DERSIG,
     DEPLOYMENT_CSV,
     DEPLOYMENT_SEGWIT,
+    DEPLOYMENT_STATELESS_PQ, // Byze v0.3: witness-v2 ML-DSA+SPHINCS+ outputs and legacy migration spends
 };
-constexpr bool ValidDeployment(BuriedDeployment dep) { return dep <= DEPLOYMENT_SEGWIT; }
+constexpr bool ValidDeployment(BuriedDeployment dep) { return dep <= DEPLOYMENT_STATELESS_PQ; }
 
 enum DeploymentPos : uint16_t {
     DEPLOYMENT_TESTDUMMY,
@@ -104,6 +105,8 @@ struct Params {
      * Note that segwit v0 script rules are enforced on all blocks except the
      * BIP 16 exception blocks. */
     int SegwitHeight;
+    /** Byze v0.3 stateless-PQ hard fork activation height (max = not scheduled) */
+    int StatelessPQHeight{std::numeric_limits<int>::max()};
     /** Don't warn about unknown BIP 9 activations below this height.
      * This prevents us from warning about the CSV and segwit activations. */
     int MinBIP9WarningHeight;
@@ -160,6 +163,8 @@ struct Params {
             return CSVHeight;
         case DEPLOYMENT_SEGWIT:
             return SegwitHeight;
+        case DEPLOYMENT_STATELESS_PQ:
+            return StatelessPQHeight;
         } // no default case, so the compiler can warn about missing cases
         return std::numeric_limits<int>::max();
     }

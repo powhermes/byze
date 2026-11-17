@@ -1418,7 +1418,8 @@ void PrecomputedTransactionData::Init(const T& txTo, std::vector<CTxOut>&& spent
     for (size_t inpos = 0; inpos < txTo.vin.size() && !(uses_bip143_segwit && uses_bip341_taproot); ++inpos) {
         if (!txTo.vin[inpos].scriptWitness.IsNull()) {
             if (m_spent_outputs_ready && m_spent_outputs[inpos].scriptPubKey.size() == 2 + WITNESS_V1_TAPROOT_SIZE &&
-                m_spent_outputs[inpos].scriptPubKey[0] == OP_1) {
+                (m_spent_outputs[inpos].scriptPubKey[0] == OP_1 || m_spent_outputs[inpos].scriptPubKey[0] == OP_2)) {
+                // Byze: witness-v2 stateless spends (v0.3) use the same BIP341 sighash as witness v1.
                 // Treat every witness-bearing spend with 34-byte scriptPubKey that starts with OP_1 as a Taproot
                 // spend. This only works if spent_outputs was provided as well, but if it wasn't, actual validation
                 // will fail anyway. Note that this branch may trigger for scriptPubKeys that aren't actually segwit
@@ -1795,6 +1796,58 @@ bool GenericTransactionSignatureChecker<T>::CheckQuantumDualSignature(std::span<
 }
 
 template <class T>
+bool GenericTransactionSignatureChecker<T>::CheckStatelessDualSignature(std::span<const unsigned char> mldsa_sig, std::span<const unsigned char> sphincs_sig, std::span<const unsigned char> bundle, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror) const
+{
+    if (sigversion != SigVersion::TAPROOT) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+    if (bundle.size() != BYZE_STATELESS_PUBKEY_BUNDLE_SIZE ||
+        mldsa_sig.size() != BYZE_MLDSA_SIGNATURE_SIZE ||
+        sphincs_sig.size() != BYZE_SPHINCS_SIGNATURE_SIZE) {
+        return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+    }
+    if (!this->txdata) return HandleMissingData(m_mdb);
+    uint256 sighash;
+    if (!SignatureHashSchnorr(sighash, execdata, *txTo, nIn, SIGHASH_DEFAULT, SigVersion::TAPROOT, *this->txdata, m_mdb)) {
+        return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+    }
+    const auto mldsa_pk = bundle.first(BYZE_MLDSA_PUBKEY_SIZE);
+    const auto sphincs_pk = bundle.subspan(BYZE_MLDSA_PUBKEY_SIZE);
+    if (!crypto::mldsa_verify(mldsa_pk, mldsa_sig, sighash) ||
+        !crypto::sphincs_verify_bytes(sphincs_pk, sphincs_sig, sighash)) {
+        return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+    }
+    return true;
+}
+
+template <class T>
+bool GenericTransactionSignatureChecker<T>::CheckQuantumMigrationSignature(std::span<const unsigned char> sphincs_sig, std::span<const unsigned char> legacy_bundle, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror) const
+{
+    if (sigversion != SigVersion::TAPROOT) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+    if (legacy_bundle.size() != BYZE_DUAL_PUBKEY_BUNDLE_SIZE || sphincs_sig.size() != BYZE_SPHINCS_SIGNATURE_SIZE) {
+        return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+    }
+    // One-way: coins leaving a legacy key through this path may only go to witness-v2 stateless
+    // outputs (or OP_RETURN data), never back to a weakened legacy address.
+    for (const auto& out : txTo->vout) {
+        const CScript& spk = out.scriptPubKey;
+        int version{-1};
+        std::vector<unsigned char> program;
+        const bool v2_stateless = spk.IsWitnessProgram(version, program) && version == 2 && program.size() == WITNESS_V2_STATELESS_SIZE;
+        const bool null_data = !spk.empty() && spk[0] == OP_RETURN;
+        if (!v2_stateless && !null_data) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+    }
+    if (!this->txdata) return HandleMissingData(m_mdb);
+    uint256 sighash;
+    if (!SignatureHashSchnorr(sighash, execdata, *txTo, nIn, SIGHASH_DEFAULT, SigVersion::TAPROOT, *this->txdata, m_mdb)) {
+        return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+    }
+    const auto sphincs_pk = legacy_bundle.subspan(BYZE_XMSS_PUBKEY_SIZE);
+    if (!crypto::sphincs_verify_bytes(sphincs_pk, sphincs_sig, sighash)) {
+        return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+    }
+    return true;
+}
+
+template <class T>
 bool GenericTransactionSignatureChecker<T>::CheckLockTime(const CScriptNum& nLockTime) const
 {
     // There are two kinds of nLockTime: lock-by-blockheight
@@ -1939,7 +1992,31 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
         }
 
+        if (xmss_sig.empty() && (flags & SCRIPT_VERIFY_STATELESS_PQ)) {
+            // v0.3 migration path for legacy keys (e.g. XMSS leaves exhausted): SPHINCS+ only, outputs v2 only.
+            if (!checker.CheckQuantumMigrationSignature(sphincs_sig, dual_pubkey, SigVersion::TAPROOT, execdata, serror)) {
+                return false;
+            }
+            return set_success(serror);
+        }
         if (!checker.CheckQuantumDualSignature(xmss_sig, sphincs_sig, dual_pubkey, SigVersion::TAPROOT, execdata, serror)) {
+            return false;
+        }
+        return set_success(serror);
+    } else if (witversion == 2 && program.size() == WITNESS_V2_STATELESS_SIZE && !is_p2sh && (flags & SCRIPT_VERIFY_STATELESS_PQ)) {
+        // v0.3 stateless output: [mldsa_sig, sphincs_sig, mldsa_pk || sphincs_pk]
+        if (stack.size() != 3) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+        execdata.m_annex_present = false;
+        execdata.m_annex_init = true;
+        const valtype& mldsa_sig = stack[0];
+        const valtype& sphincs_sig = stack[1];
+        const valtype& bundle = stack[2];
+        unsigned char bundle_hash[32];
+        CSHA256().Write(bundle.data(), bundle.size()).Finalize(bundle_hash);
+        if (std::memcmp(bundle_hash, program.data(), program.size()) != 0) {
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+        }
+        if (!checker.CheckStatelessDualSignature(mldsa_sig, sphincs_sig, bundle, SigVersion::TAPROOT, execdata, serror)) {
             return false;
         }
         return set_success(serror);
@@ -1972,8 +2049,9 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     // Byze requires witness v1 quantum-safe spends only.
     int witnessversion = -1;
     std::vector<unsigned char> witnessprogram;
+    // v0.3: witness-v2 stateless outputs are spendable once SCRIPT_VERIFY_STATELESS_PQ is active.
     if (!scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram) ||
-        witnessversion != 1 ||
+        !(witnessversion == 1 || (witnessversion == 2 && (flags & SCRIPT_VERIFY_STATELESS_PQ))) ||
         witnessprogram.size() != WITNESS_V1_TAPROOT_SIZE ||
         scriptSig.size() != 0) {
         return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
@@ -2147,6 +2225,7 @@ const std::map<std::string, script_verify_flag_name>& ScriptFlagNamesToEnum()
         FLAG_NAME(CONST_SCRIPTCODE),
         FLAG_NAME(TAPROOT),
         FLAG_NAME(DISCOURAGE_UPGRADABLE_PUBKEYTYPE),
+        FLAG_NAME(STATELESS_PQ),
         FLAG_NAME(DISCOURAGE_OP_SUCCESS),
         FLAG_NAME(DISCOURAGE_UPGRADABLE_TAPROOT_VERSION),
     };

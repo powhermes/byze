@@ -124,8 +124,12 @@ CTxDestination DecodeDestination(const std::string& str, const CChainParams& par
                 std::copy(data.begin(), data.end(), tap.begin());
                 return tap;
             }
+            if (version == 2 && data.size() == WITNESS_V2_STATELESS_SIZE) {
+                // Byze v0.3 stateless address (ML-DSA-44 + SPHINCS+), spendable once statelesspq is active
+                return WitnessUnknown{version, data};
+            }
             if (version != 1) {
-                error_str = "Only witness v1 addresses are supported";
+                error_str = "Only witness v1 and v2 (stateless, 32-byte) addresses are supported";
                 return CNoDestination();
             }
             error_str = strprintf("Invalid witness v1 address program size (%d %s), expected 32 bytes", data.size(), byte_str);

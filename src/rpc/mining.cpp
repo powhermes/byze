@@ -631,6 +631,14 @@ static RPCHelpMan getmininginfo()
                         {RPCResult::Type::NUM, "networkhashps", "The network hashes per second"},
                         {RPCResult::Type::NUM, "pooledtx", "The size of the mempool"},
                         {RPCResult::Type::STR, "chain", "current network name (" LIST_CHAIN_NAMES ")"},
+                        {RPCResult::Type::BOOL, "mining_active", /*optional=*/true, "Byze: whether in-process solo mining is running"},
+                        {RPCResult::Type::STR, "mining_address", /*optional=*/true, "Byze: current payout address"},
+                        {RPCResult::Type::NUM, "blocks_on_address", /*optional=*/true, "Byze: blocks found while paying the current address"},
+                        {RPCResult::Type::NUM, "blocks_per_address", /*optional=*/true, "Byze: rotation threshold"},
+                        {RPCResult::Type::NUM, "addresses_remaining", /*optional=*/true, "Byze: supplied payout addresses not used yet"},
+                        {RPCResult::Type::NUM, "blocks_found", /*optional=*/true, "Byze: blocks found since mining started"},
+                        {RPCResult::Type::NUM, "hashrate", /*optional=*/true, "Byze: local hashes per second"},
+                        {RPCResult::Type::NUM, "hashes_tried", /*optional=*/true, "Byze: total hashes tried"},
                         (IsDeprecatedRPCEnabled("warnings") ?
                             RPCResult{RPCResult::Type::STR, "warnings", "any network and blockchain warnings (DEPRECATED)"} :
                             RPCResult{RPCResult::Type::ARR, "warnings", "any network and blockchain warnings (run with `-deprecatedrpc=warnings` to return the latest warning as a single string)",
@@ -667,6 +675,9 @@ static RPCHelpMan getmininginfo()
         obj.pushKV("mining_active", stats.active);
         if (stats.active) {
             obj.pushKV("mining_address", stats.address);
+            obj.pushKV("blocks_on_address", stats.blocks_on_address);
+            obj.pushKV("blocks_per_address", static_cast<uint64_t>(stats.blocks_per_address));
+            obj.pushKV("addresses_remaining", static_cast<uint64_t>(stats.addresses_remaining));
             obj.pushKV("blocks_found", stats.blocks_found);
             obj.pushKV("hashrate", stats.hashrate);
             obj.pushKV("hashes_tried", stats.hashes_tried);
@@ -709,11 +720,14 @@ static RPCHelpMan startmining()
 {
     return RPCHelpMan{
         "startmining",
-        "Start in-process solo CPU mining (RandomX) to the given payout address.\n"
+        "Start in-process solo CPU mining (RandomX) to the given payout address(es).\n"
+        "Byze addresses can sign at most 1,024 inputs (XMSS), so pass several fresh addresses\n"
+        "(comma-separated): the miner pays blocks_per_address found blocks to each in turn.\n"
         "For high-performance pooled mining, use the separate Byze Miner against pool endpoints.\n",
         {
-            {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "Payout address for coinbase rewards"},
+            {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "Payout address, or several comma-separated addresses to rotate through"},
             {"threads", RPCArg::Type::NUM, RPCArg::Default{0}, "Number of mining threads (0 = auto-detect)"},
+            {"blocks_per_address", RPCArg::Type::NUM, RPCArg::Default{node::MiningController::DEFAULT_BLOCKS_PER_ADDRESS}, "Found blocks paid to each address before rotating (1-1000)"},
         },
         RPCResult{
             RPCResult::Type::OBJ, "", "",
@@ -721,9 +735,12 @@ static RPCHelpMan startmining()
                 {RPCResult::Type::BOOL, "success", "true if mining started"},
                 {RPCResult::Type::STR, "address", "Mining payout address"},
                 {RPCResult::Type::NUM, "threads", "Number of worker threads"},
+                {RPCResult::Type::NUM, "addresses", "Number of payout addresses in the rotation"},
+                {RPCResult::Type::NUM, "blocks_per_address", "Rotation threshold"},
             }},
         RPCExamples{
             HelpExampleCli("startmining", "\"byze1q...\" 4")
+            + HelpExampleCli("startmining", "\"byz1p...a,byz1p...b\" 0 800")
             + HelpExampleRpc("startmining", "\"byze1q...\", 4")},
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
             NodeContext& node = EnsureAnyNodeContext(request.context);
@@ -737,28 +754,59 @@ static RPCHelpMan startmining()
                 }
             }
             node::MiningController& controller = EnsureMiningController(node);
-            const std::string address = request.params[0].get_str();
-            int threads = 0;
-            if (request.params.size() > 1) {
-                threads = request.params[1].getInt<int>();
+            std::vector<std::string> addresses;
+            {
+                const std::string list = request.params[0].get_str();
+                size_t start = 0;
+                while (start <= list.size()) {
+                    size_t end = list.find(',', start);
+                    if (end == std::string::npos) end = list.size();
+                    std::string a = list.substr(start, end - start);
+                    a.erase(0, a.find_first_not_of(" \t"));
+                    a.erase(a.find_last_not_of(" \t") + 1);
+                    if (!a.empty()) addresses.push_back(a);
+                    start = end + 1;
+                }
             }
-            const CTxDestination payout_dest = DecodeDestination(address);
-            if (!IsValidDestination(payout_dest)) {
+            if (addresses.empty()) {
                 throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid mining payout address");
             }
-            EnsureCoinbaseScriptNotPlainTaproot(node, GetScriptForDestination(payout_dest));
-            if (controller.IsMining()) {
-                throw JSONRPCError(RPC_MISC_ERROR, "Mining is already active; call stopmining first");
+            int threads = 0;
+            if (request.params.size() > 1 && !request.params[1].isNull()) {
+                threads = request.params[1].getInt<int>();
             }
-            if (!controller.StartMining(address, threads)) {
+            int blocks_per_address = node::MiningController::DEFAULT_BLOCKS_PER_ADDRESS;
+            if (request.params.size() > 2 && !request.params[2].isNull()) {
+                blocks_per_address = request.params[2].getInt<int>();
+            }
+            if (blocks_per_address < 1 || blocks_per_address > static_cast<int>(node::MiningController::MAX_BLOCKS_PER_ADDRESS)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "blocks_per_address must be between 1 and 1000");
+            }
+            for (const std::string& address : addresses) {
+                const CTxDestination payout_dest = DecodeDestination(address);
+                if (!IsValidDestination(payout_dest)) {
+                    throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid mining payout address: " + address);
+                }
+                EnsureCoinbaseScriptNotPlainTaproot(node, GetScriptForDestination(payout_dest));
+            }
+            if (controller.IsMining() || controller.IsStarting()) {
+                throw JSONRPCError(RPC_MISC_ERROR, "Mining is already active or starting; call stopmining first");
+            }
+            if (!controller.StartMining(addresses, threads, static_cast<uint32_t>(blocks_per_address))) {
+                if (controller.IsMining() || controller.IsStarting()) {
+                    throw JSONRPCError(RPC_MISC_ERROR, "Mining is already active or starting; call stopmining first");
+                }
                 throw JSONRPCError(RPC_MISC_ERROR, "Failed to start mining (invalid address or RandomX init failure)");
             }
+            const std::string& address = addresses.front();
             const unsigned int hw = std::max(1u, std::thread::hardware_concurrency());
             const int effective_threads = threads > 0 ? threads : static_cast<int>(hw);
             UniValue ret(UniValue::VOBJ);
             ret.pushKV("success", true);
             ret.pushKV("address", address);
             ret.pushKV("threads", effective_threads);
+            ret.pushKV("addresses", static_cast<uint64_t>(addresses.size()));
+            ret.pushKV("blocks_per_address", blocks_per_address);
             return ret;
         },
     };

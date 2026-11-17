@@ -107,6 +107,7 @@ public:
         consensus.powLimit = uint256{"00000ffff0000000000000000000000000000000000000000000000000000000"};
         //consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
         consensus.nPowTargetTimespan = 60 * 60; // 1 hour
+        consensus.StatelessPQHeight = 28000; // Byze v0.3 hard fork (stateless PQ outputs + fork marker); ~4-5 weeks after release at h24,486
         consensus.nPowTargetSpacing = 10 * 60;
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.enforce_BIP94 = false;
@@ -652,6 +653,7 @@ public:
         consensus.BIP66Height = 1;  // Always active unless overridden
         consensus.CSVHeight = 1;    // Always active unless overridden
         consensus.SegwitHeight = 0; // Always active unless overridden
+        consensus.StatelessPQHeight = 1; // Byze v0.3: active unless overridden (-testactivationheight=statelesspq@N)
         consensus.MinBIP9WarningHeight = 0;
         consensus.powLimit = uint256{"7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
         consensus.nPowTargetTimespan = 24 * 60 * 60; // one day
@@ -690,6 +692,9 @@ public:
             switch (dep) {
             case Consensus::BuriedDeployment::DEPLOYMENT_SEGWIT:
                 consensus.SegwitHeight = int{height};
+                break;
+            case Consensus::BuriedDeployment::DEPLOYMENT_STATELESS_PQ:
+                consensus.StatelessPQHeight = int{height};
                 break;
             case Consensus::BuriedDeployment::DEPLOYMENT_HEIGHTINCB:
                 consensus.BIP34Height = int{height};
