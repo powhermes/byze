@@ -21,6 +21,9 @@ static const int32_t VERSIONBITS_LAST_OLD_BLOCK_VERSION = 4;
 static const int32_t VERSIONBITS_TOP_BITS = 0x20000000UL;
 /** What bitmask determines whether versionbits is in use */
 static const int32_t VERSIONBITS_TOP_MASK = 0xE0000000UL;
+/** Byze v0.3: mandatory fork marker. Blocks at or after StatelessPQHeight must set this bit, so v0.3 nodes
+ *  never follow a chain extended by miners still running pre-v0.3 software. */
+static const int32_t VERSIONBITS_STATELESS_PQ_MARKER = 1 << 4;
 /** Total bits available for versionbits */
 static const int32_t VERSIONBITS_NUM_BITS = 29;
 

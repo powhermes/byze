@@ -107,6 +107,7 @@ public:
         consensus.powLimit = uint256{"00000ffff0000000000000000000000000000000000000000000000000000000"};
         //consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
         consensus.nPowTargetTimespan = 60 * 60; // 1 hour
+        consensus.StatelessPQHeight = 28000; // Byze v0.3 hard fork (stateless PQ outputs + fork marker); ~4-5 weeks after release at h24,486
         consensus.nPowTargetSpacing = 10 * 60;
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.enforce_BIP94 = false;

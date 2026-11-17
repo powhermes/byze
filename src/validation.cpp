@@ -4305,6 +4305,14 @@ static bool ContextualCheckBlockHeader(const CBlockHeader& block, BlockValidatio
                                  strprintf("rejected nVersion=0x%08x block", block.nVersion));
     }
 
+    // Byze v0.3: after activation every block must carry the fork marker, so blocks mined by
+    // pre-v0.3 software are invalid here and can never reorg the upgraded chain.
+    if (DeploymentActiveAfter(pindexPrev, chainman, Consensus::DEPLOYMENT_STATELESS_PQ) &&
+        !(block.nVersion & VERSIONBITS_STATELESS_PQ_MARKER)) {
+        return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, strprintf("bad-version-statelesspq(0x%08x)", block.nVersion),
+                             "block after v0.3 activation lacks the fork marker bit (mined by pre-v0.3 software)");
+    }
+
     return true;
 }
 
