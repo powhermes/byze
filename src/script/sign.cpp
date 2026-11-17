@@ -111,6 +111,22 @@ bool MutableTransactionSignatureCreator::CreateQuantumSig(const SigningProvider&
     return provider.SignQuantumSighash(*sighash, std::span<const unsigned char>(output_key.begin(), output_key.size()), xmss_sig, sphincs_sig, dual_pubkey_bundle);
 }
 
+bool MutableTransactionSignatureCreator::CreateStatelessSig(const SigningProvider& provider, std::vector<unsigned char>& mldsa_sig, std::vector<unsigned char>& sphincs_sig, std::vector<unsigned char>& bundle, std::span<const unsigned char> program, SigVersion sigversion) const
+{
+    if (sigversion != SigVersion::TAPROOT || program.size() != WITNESS_V2_STATELESS_SIZE) return false;
+    // Consensus verifies v2 spends against the SIGHASH_DEFAULT BIP341 hash only, whatever hash type
+    // the caller asked for (PSBT signing defaults non-v1 inputs to SIGHASH_ALL).
+    if (!m_txdata || !m_txdata->m_bip341_taproot_ready || !m_txdata->m_spent_outputs_ready) return false;
+    ScriptExecutionData execdata;
+    execdata.m_annex_init = true;
+    execdata.m_annex_present = false;
+    uint256 sighash;
+    if (!SignatureHashSchnorr(sighash, execdata, m_txto, nIn, SIGHASH_DEFAULT, SigVersion::TAPROOT, *m_txdata, MissingDataBehavior::FAIL)) return false;
+    if (!provider.SignQuantumSighash(sighash, program, mldsa_sig, sphincs_sig, bundle)) return false;
+    return mldsa_sig.size() == BYZE_MLDSA_SIGNATURE_SIZE && sphincs_sig.size() == BYZE_SPHINCS_SIGNATURE_SIZE &&
+           bundle.size() == BYZE_STATELESS_PUBKEY_BUNDLE_SIZE;
+}
+
 std::vector<uint8_t> MutableTransactionSignatureCreator::CreateMuSig2Nonce(const SigningProvider& provider, const CPubKey& aggregate_pubkey, const CPubKey& script_pubkey, const CPubKey& part_pubkey, const uint256* leaf_hash, const uint256* merkle_root, SigVersion sigversion, const SignatureData& sigdata) const
 {
     assert(sigversion == SigVersion::TAPROOT || sigversion == SigVersion::TAPSCRIPT);
@@ -649,8 +665,23 @@ static bool SignStep(const SigningProvider& provider, const BaseSignatureCreator
     switch (whichTypeRet) {
     case TxoutType::NONSTANDARD:
     case TxoutType::NULL_DATA:
-    case TxoutType::WITNESS_UNKNOWN:
         return false;
+    case TxoutType::WITNESS_UNKNOWN:
+    {
+        // Byze v0.3 witness-v2 stateless output: [mldsa_sig, sphincs_sig, mldsa_pk || sphincs_pk]
+        if (vSolutions.size() != 2 || vSolutions[0] != std::vector<unsigned char>{2} ||
+            vSolutions[1].size() != WITNESS_V2_STATELESS_SIZE) {
+            return false;
+        }
+        std::vector<unsigned char> mldsa_sig, sphincs_sig, bundle;
+        if (!creator.CreateStatelessSig(provider, mldsa_sig, sphincs_sig, bundle, vSolutions[1], SigVersion::TAPROOT)) {
+            return false;
+        }
+        ret.push_back(std::move(mldsa_sig));
+        ret.push_back(std::move(sphincs_sig));
+        ret.push_back(std::move(bundle));
+        return true;
+    }
     case TxoutType::PUBKEY:
         if (!CreateSig(creator, sigdata, provider, sig, CPubKey(vSolutions[0]), scriptPubKey, sigversion)) return false;
         ret.push_back(std::move(sig));
@@ -808,8 +839,13 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
             sigdata.scriptWitness.stack = std::move(result);
         }
         result.clear();
-    } else if (solved && whichType == TxoutType::WITNESS_UNKNOWN) {
+    } else if (whichType == TxoutType::WITNESS_UNKNOWN && !P2SH) {
+        // Byze v0.3 witness-v2 stateless spend (SignStep only solves v2/32 here)
         sigdata.witness = true;
+        if (solved) {
+            sigdata.scriptWitness.stack = std::move(result);
+        }
+        result.clear();
     }
 
     if (!sigdata.witness) sigdata.scriptWitness.stack.clear();
@@ -819,7 +855,7 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
     sigdata.scriptSig = PushAll(result);
 
     // Test solution
-    sigdata.complete = solved && VerifyScript(sigdata.scriptSig, fromPubKey, &sigdata.scriptWitness, STANDARD_SCRIPT_VERIFY_FLAGS, creator.Checker());
+    sigdata.complete = solved && VerifyScript(sigdata.scriptSig, fromPubKey, &sigdata.scriptWitness, STANDARD_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_STATELESS_PQ, creator.Checker());
     return sigdata.complete;
 }
 
@@ -868,7 +904,7 @@ SignatureData DataFromTransaction(const CMutableTransaction& tx, unsigned int nI
     // Get signatures
     MutableTransactionSignatureChecker tx_checker(&tx, nIn, txout.nValue, MissingDataBehavior::FAIL);
     SignatureExtractorChecker extractor_checker(data, tx_checker);
-    if (VerifyScript(data.scriptSig, txout.scriptPubKey, &data.scriptWitness, STANDARD_SCRIPT_VERIFY_FLAGS, extractor_checker)) {
+    if (VerifyScript(data.scriptSig, txout.scriptPubKey, &data.scriptWitness, STANDARD_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_STATELESS_PQ, extractor_checker)) {
         data.complete = true;
         return data;
     }
@@ -994,6 +1030,13 @@ public:
         dual_pubkey_bundle.assign(BYZE_DUAL_PUBKEY_BUNDLE_SIZE, '\000');
         return true;
     }
+    bool CreateStatelessSig(const SigningProvider& provider, std::vector<unsigned char>& mldsa_sig, std::vector<unsigned char>& sphincs_sig, std::vector<unsigned char>& bundle, std::span<const unsigned char> program, SigVersion sigversion) const override
+    {
+        mldsa_sig.assign(BYZE_MLDSA_SIGNATURE_SIZE, '\000');
+        sphincs_sig.assign(BYZE_SPHINCS_SIGNATURE_SIZE, '\000');
+        bundle.assign(BYZE_STATELESS_PUBKEY_BUNDLE_SIZE, '\000');
+        return true;
+    }
     std::vector<uint8_t> CreateMuSig2Nonce(const SigningProvider& provider, const CPubKey& aggregate_pubkey, const CPubKey& script_pubkey, const CPubKey& part_pubkey, const uint256* leaf_hash, const uint256* merkle_root, SigVersion sigversion, const SignatureData& sigdata) const override
     {
         std::vector<uint8_t> out;
@@ -1086,7 +1129,7 @@ bool SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, 
         }
 
         ScriptError serror = SCRIPT_ERR_OK;
-        if (!sigdata.complete && !VerifyScript(txin.scriptSig, prevPubKey, &txin.scriptWitness, STANDARD_SCRIPT_VERIFY_FLAGS, TransactionSignatureChecker(&txConst, i, amount, txdata, MissingDataBehavior::FAIL), &serror)) {
+        if (!sigdata.complete && !VerifyScript(txin.scriptSig, prevPubKey, &txin.scriptWitness, STANDARD_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_STATELESS_PQ, TransactionSignatureChecker(&txConst, i, amount, txdata, MissingDataBehavior::FAIL), &serror)) {
             if (serror == SCRIPT_ERR_INVALID_STACK_OPERATION) {
                 // Unable to sign input and verification failed (possible attempt to partially sign).
                 input_errors[i] = Untranslated("Unable to sign input, invalid stack size (possibly missing key)");

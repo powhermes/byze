@@ -143,6 +143,7 @@ BASE_SCRIPTS = [
     'wallet_quantum_getnewaddress.py',
     'wallet_quantum_getaddressinfo.py',
     'mining_solo_rotation.py',
+    'feature_stateless_pq.py',
     'wallet_quantum_plain_taproot.py',
     'wallet_quantum_plain_taproot_reload.py',
     'wallet_quantum_invariants.py',

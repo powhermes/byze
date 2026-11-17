@@ -480,6 +480,10 @@ private:
     std::vector<uint8_t> m_quantum_secret_storage GUARDED_BY(cs_wallet);
     bool m_quantum_secret_is_encrypted GUARDED_BY(cs_wallet){false};
     std::unique_ptr<crypto::quantum_safe_manager> m_quantum_manager GUARDED_BY(cs_wallet);
+    /** Byze v0.3: witness-v2 stateless programs this wallet derived (program -> HD index). Public data
+     *  only: the ML-DSA / SPHINCS+ keys are re-derived from the HD master when signing (no state). */
+    std::map<std::array<uint8_t, 32>, uint32_t> m_stateless_programs GUARDED_BY(cs_wallet);
+    uint32_t m_stateless_next_index GUARDED_BY(cs_wallet){0};
     /** Byze: on-disk quantum blob layout (1 legacy, 2 with HD-origin byte). */
     uint8_t m_quantum_blob_format GUARDED_BY(cs_wallet){2};
     /** Byze: 0 unknown / legacy v1 blob, 1 derived from descriptor HD master (deterministic with wallet seed). */
@@ -743,6 +747,14 @@ public:
     bool EnsureQuantumKeysForReceive() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: true if script is this wallet's quantum P2TR output. */
     bool IsQuantumMine(const CScript& script) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Byze v0.3: derive the next witness-v2 stateless (ML-DSA-44 + SPHINCS+) address. Needs the HD master (unlocked). */
+    util::Result<CTxDestination> GetNewStatelessDestination(const std::string& label) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool IsStatelessProgram(std::span<const unsigned char> program) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    /** Derive and store programs for indices [0, next + lookahead) so restored wallets and rescans see v2 coins. */
+    bool TopUpStatelessPrograms() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    static constexpr uint32_t STATELESS_LOOKAHEAD{20};
+    /** Byze v0.3 migration: SPHINCS+-only signature for a legacy (XMSS + SPHINCS+) program this wallet owns. */
+    bool SignLegacyMigrationSighash(const uint256& sighash, std::span<const unsigned char> program, std::vector<unsigned char>& sphincs_sig, std::vector<unsigned char>& legacy_bundle) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: quantum signing material is loaded in memory (wallet unlocked or not encrypted). */
     bool QuantumCanSign() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Byze: witness v1 programme for quantum receive is present in the wallet database. */

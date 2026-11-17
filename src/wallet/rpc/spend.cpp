@@ -37,6 +37,9 @@ static bool IsQuantumScriptPubKey(const CScript& script)
     int witness_version{-1};
     std::vector<unsigned char> witness_program;
     if (!script.IsWitnessProgram(witness_version, witness_program)) return false;
+    if (witness_version == 2 && witness_program.size() == WITNESS_V2_STATELESS_SIZE) {
+        return script.size() == 2 + WITNESS_V2_STATELESS_SIZE && script[0] == OP_2; // Byze v0.3 stateless
+    }
     if (witness_version != 1 || witness_program.size() != WITNESS_V1_TAPROOT_SIZE) return false;
     return script.size() == 2 + WITNESS_V1_TAPROOT_SIZE && script[0] == OP_1 && script[1] == WITNESS_V1_TAPROOT_SIZE;
 }
@@ -50,7 +53,7 @@ static void EnsureQuantumRecipients(const std::vector<CRecipient>& recipients)
 {
     for (const auto& recipient : recipients) {
         if (!IsQuantumDestination(recipient.dest)) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Byze wallet sends support only bech32m witness v1 destinations");
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Byze wallet sends support only bech32m witness v1 and v2 (stateless) destinations");
         }
     }
 }
@@ -596,7 +599,7 @@ CreatedTransactionResult FundTransaction(CWallet& wallet, const CMutableTransact
                 CTxDestination dest = DecodeDestination(change_address_str);
 
                 if (!IsValidDestination(dest) || !IsQuantumDestination(dest)) {
-                    throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Change address must be a valid bech32m witness v1 address");
+                    throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Change address must be a valid bech32m witness v1 or v2 (stateless) address");
                 }
 
                 coinControl.destChange = dest;

@@ -565,6 +565,14 @@ std::shared_ptr<CWallet> RestoreWalletFromMnemonic(WalletContext& context, const
         }
     }
 
+    {
+        // Byze v0.3: watch the first stateless (witness-v2) addresses so the rescan finds their coins.
+        LOCK(wallet->cs_wallet);
+        if (!wallet->TopUpStatelessPrograms()) {
+            warnings.push_back(Untranslated("Could not derive stateless (ML-DSA) addresses; their coins will not show until getnewstatelessaddress and a rescan"));
+        }
+    }
+
     if (!RescanRestoredWallet(*wallet, error)) {
         status = DatabaseStatus::FAILED_CREATE;
         return nullptr;

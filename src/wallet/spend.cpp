@@ -51,6 +51,9 @@ static bool IsQuantumScriptPubKey(const CScript& script)
     int witness_version{-1};
     std::vector<unsigned char> witness_program;
     if (!script.IsWitnessProgram(witness_version, witness_program)) return false;
+    if (witness_version == 2 && witness_program.size() == WITNESS_V2_STATELESS_SIZE) {
+        return script.size() == 2 + WITNESS_V2_STATELESS_SIZE && script[0] == OP_2; // Byze v0.3 stateless
+    }
     if (witness_version != 1 || witness_program.size() != WITNESS_V1_TAPROOT_SIZE) return false;
     return script.size() == 2 + WITNESS_V1_TAPROOT_SIZE && script[0] == OP_1 && script[1] == WITNESS_V1_TAPROOT_SIZE;
 }
@@ -106,16 +109,19 @@ int CalculateMaximumSignedInputSize(const CTxOut& txout, const COutPoint outpoin
     // Wallet funding needs an accurate size for fee/weight estimation, independent of descriptors.
     int witness_version{-1};
     std::vector<unsigned char> witness_program;
-    if (txout.scriptPubKey.IsWitnessProgram(witness_version, witness_program) &&
-        witness_version == 1 && witness_program.size() == WITNESS_V1_TAPROOT_SIZE) {
+    const bool v2_stateless{txout.scriptPubKey.IsWitnessProgram(witness_version, witness_program) &&
+                            witness_version == 2 && witness_program.size() == WITNESS_V2_STATELESS_SIZE};
+    if (v2_stateless || (txout.scriptPubKey.IsWitnessProgram(witness_version, witness_program) &&
+        witness_version == 1 && witness_program.size() == WITNESS_V1_TAPROOT_SIZE)) {
         const int64_t scriptsig_len{1}; // empty scriptsig (CompactSize(0))
         const int64_t base_wu{(32 + 4 + 4 + scriptsig_len) * WITNESS_SCALE_FACTOR};
 
         const int64_t wit_elems{3};
         const int64_t wit_count_len{GetSizeOfCompactSize(wit_elems)};
-        const int64_t xmss_len{BYZE_XMSS_SIGNATURE_SIZE};
+        // Byze v0.3 witness v2: [mldsa_sig, sphincs_sig, mldsa_pk || sphincs_pk]
+        const int64_t xmss_len{v2_stateless ? BYZE_MLDSA_SIGNATURE_SIZE : BYZE_XMSS_SIGNATURE_SIZE};
         const int64_t sphincs_len{BYZE_SPHINCS_SIGNATURE_SIZE};
-        const int64_t bundle_len{BYZE_DUAL_PUBKEY_BUNDLE_SIZE};
+        const int64_t bundle_len{v2_stateless ? BYZE_STATELESS_PUBKEY_BUNDLE_SIZE : BYZE_DUAL_PUBKEY_BUNDLE_SIZE};
         const int64_t wit_bytes{
             wit_count_len +
             GetSizeOfCompactSize(xmss_len) + xmss_len +
@@ -173,16 +179,19 @@ static std::optional<int64_t> GetSignedTxinWeight(const CWallet* wallet, const C
     // Descriptor inference is not used for these outputs, so compute weight directly.
     int witness_version{-1};
     std::vector<unsigned char> witness_program;
-    if (txo.scriptPubKey.IsWitnessProgram(witness_version, witness_program) &&
-        witness_version == 1 && witness_program.size() == WITNESS_V1_TAPROOT_SIZE) {
+    const bool v2_stateless{txo.scriptPubKey.IsWitnessProgram(witness_version, witness_program) &&
+                            witness_version == 2 && witness_program.size() == WITNESS_V2_STATELESS_SIZE};
+    if (v2_stateless || (txo.scriptPubKey.IsWitnessProgram(witness_version, witness_program) &&
+        witness_version == 1 && witness_program.size() == WITNESS_V1_TAPROOT_SIZE)) {
         const int64_t scriptsig_len{1}; // empty scriptsig (CompactSize(0))
         const int64_t base_wu{(32 + 4 + 4 + scriptsig_len) * WITNESS_SCALE_FACTOR};
 
         const int64_t wit_elems{3};
         const int64_t wit_count_len{GetSizeOfCompactSize(wit_elems)};
-        const int64_t xmss_len{BYZE_XMSS_SIGNATURE_SIZE};
+        // Byze v0.3 witness v2: [mldsa_sig, sphincs_sig, mldsa_pk || sphincs_pk]
+        const int64_t xmss_len{v2_stateless ? BYZE_MLDSA_SIGNATURE_SIZE : BYZE_XMSS_SIGNATURE_SIZE};
         const int64_t sphincs_len{BYZE_SPHINCS_SIGNATURE_SIZE};
-        const int64_t bundle_len{BYZE_DUAL_PUBKEY_BUNDLE_SIZE};
+        const int64_t bundle_len{v2_stateless ? BYZE_STATELESS_PUBKEY_BUNDLE_SIZE : BYZE_DUAL_PUBKEY_BUNDLE_SIZE};
         const int64_t wit_bytes{
             wit_count_len +
             GetSizeOfCompactSize(xmss_len) + xmss_len +
@@ -210,7 +219,8 @@ TxSize CalculateMaximumSignedTxSize(const CTransaction &tx, const CWallet *walle
         int witness_version{-1};
         std::vector<unsigned char> witness_program;
         if (txo.scriptPubKey.IsWitnessProgram(witness_version, witness_program) &&
-            witness_version == 1 && witness_program.size() == WITNESS_V1_TAPROOT_SIZE) {
+            ((witness_version == 1 && witness_program.size() == WITNESS_V1_TAPROOT_SIZE) ||
+             (witness_version == 2 && witness_program.size() == WITNESS_V2_STATELESS_SIZE))) {
             return true;
         }
         std::unique_ptr<Descriptor> desc{GetDescriptor(wallet, coin_control, txo.scriptPubKey)};
